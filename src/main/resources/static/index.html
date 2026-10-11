@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>SQLFINDER · 问数工作台</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232854d7'/%3E%3Cpath d='M9 10h14M9 16h9M9 22h14' stroke='white' stroke-width='3'/%3E%3C/svg%3E">
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/auth.js" defer></script>
+    <script src="/app.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#question">跳到问题输入</a>
+<div class="app-shell">
+    <header class="app-header">
+        <a class="brand" href="/" aria-label="SQLFINDER 首页"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span>SQL<span class="brand-light">FINDER</span><small>问数工作台</small></span></a>
+        <div class="header-actions"><div class="connection"><span class="connection-dot" id="connection-dot"></span><span id="connection-label">正在连接服务</span><button class="icon-button" id="refresh-config" type="button" title="刷新服务配置" aria-label="刷新服务配置">↻</button></div><div id="user-controls" class="user-controls" hidden><span id="current-user"></span><button id="logout-button" class="text-button" type="button">退出登录</button></div></div>
+    </header>
+    <main>
+        <div class="workspace-heading"><div><p class="eyebrow">从问题到答案</p><h1>用你的问题，读懂数据。</h1><p class="heading-description">描述想知道的内容，查看生成的 SQL 与查询结果。</p></div><div class="mode-badge" id="mode-badge">正在读取模式</div></div>
+        <div class="workspace">
+            <aside class="query-panel">
+                <section class="question-card" aria-labelledby="question-heading">
+                    <div class="section-heading"><h2 id="question-heading">提出问题</h2><span class="small-label">自然语言查询</span></div>
+                    <form id="question-form" novalidate>
+                        <label class="sr-only" for="question">你想查询什么？</label>
+                        <textarea id="question" rows="6" placeholder="例如：一共有多少家商铺？" aria-describedby="question-help"></textarea>
+                        <div class="input-footer"><span id="question-help">写清统计范围，答案会更准确。</span><span id="character-count">0 字</span></div>
+                        <button id="submit-button" class="primary-button" type="submit"><span id="submit-label">提交问题</span><span id="submit-arrow" aria-hidden="true">↗</span></button>
+                        <p class="keyboard-hint">Ctrl / ⌘ + Enter 提交</p>
+                    </form>
+                    <div class="examples"><p class="small-label">从一个问题开始</p>
+                        <button class="example-button" type="button" data-question="一共有多少家商铺？"><span>商铺总数</span><span aria-hidden="true">↗</span></button>
+                        <button class="example-button" type="button" data-question="按商铺类型统计商铺数量，按类型 ID 升序排列。"><span>按类型统计数量</span><span aria-hidden="true">↗</span></button>
+                        <button class="example-button" type="button" data-question="列出所有商铺类型的名称和商铺数量，包含没有商铺的类型。"><span>查看全部类型分布</span><span aria-hidden="true">↗</span></button>
+                    </div>
+                </section>
+                <section class="source-card" aria-labelledby="source-heading"><div class="section-heading"><h2 id="source-heading">可查询的数据</h2><span class="source-symbol" aria-hidden="true">▦</span></div><p id="source-summary" class="secondary-text">正在读取授权数据表…</p><div id="source-tables" class="source-tables"></div><div class="query-limits" id="query-limits">正在读取查询限制…</div></section>
+                <p class="side-note" id="mode-note">提交问题会调用已配置的模型服务。</p>
+            </aside>
+            <section class="answer-panel" aria-labelledby="answer-heading" aria-busy="false">
+                <header class="answer-header"><div><span class="eyebrow">查询工作区</span><h2 id="answer-heading">答案与依据</h2></div><button id="reset-button" class="text-button" type="button">新问题 <span aria-hidden="true">＋</span></button></header>
+                <div class="status-banner" id="status-banner" role="status" aria-live="polite" hidden><span class="status-symbol" id="status-symbol" aria-hidden="true">●</span><div><strong id="status-title"></strong><p id="message"></p><p id="error-detail" class="error-detail" hidden></p></div><span class="elapsed" id="elapsed"></span></div>
+                <div id="empty-state" class="empty-state"><div class="empty-visual" aria-hidden="true"><div class="visual-header"><i></i><i></i><i></i></div><div class="visual-grid"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><span class="visual-cursor">↗</span></div><h3>答案，从一个好问题开始。</h3><p>在左侧输入问题，或选择一个示例。<br>生成的 SQL、校验依据和数据会出现在这里。</p><div class="empty-tags"><span>自然语言提问</span><span>SQL 校验</span><span>只读查询</span></div></div>
+                <section id="sql-section" class="sql-section" aria-labelledby="sql-heading" hidden>
+                    <div class="result-section-heading"><div><span class="section-tag">SQL</span><h3 id="sql-heading">生成的查询</h3></div><button id="copy-sql" class="text-button" type="button">复制 SQL</button></div>
+                    <div class="code-frame"><pre class="line-numbers" id="line-numbers" aria-hidden="true"></pre><pre id="sql" tabindex="0" aria-label="生成的 SQL"></pre></div>
+                    <div class="validation-summary" id="validation" hidden><div><span class="small-label">涉及数据表</span><div id="validation-tables" class="chips"></div></div><div><span class="small-label">使用函数</span><div id="validation-functions" class="chips"></div></div></div>
+                </section>
+                <section id="table-section" class="table-section" aria-labelledby="table-heading" hidden>
+                    <div class="result-section-heading"><div><span class="section-tag">DATA</span><h3 id="table-heading">查询结果</h3><span id="row-count" class="count-badge"></span></div><button id="export-csv" class="text-button" type="button" title="导出全部已返回数据，不受筛选或分页影响">导出 CSV <span aria-hidden="true">↓</span></button></div>
+                    <p id="truncation-note" class="truncation-note" hidden>结果已达到返回行数上限，部分数据未显示。可缩小查询范围后重试。</p>
+                    <div class="table-toolbar"><label for="result-filter" class="sr-only">筛选已返回的数据</label><input id="result-filter" type="search" placeholder="筛选已返回的数据…"><span id="filter-count" class="small-label"></span></div>
+                    <div id="table-scroll" class="table-scroll" tabindex="0" aria-label="查询结果，可横向滚动"><table id="result-table"><caption class="sr-only">查询结果</caption><thead></thead><tbody></tbody></table></div>
+                    <p id="table-empty" class="table-empty" hidden></p>
+                    <div id="pagination" class="pagination" hidden><span id="page-info"></span><div><button id="previous-page" class="page-button" type="button" aria-label="上一页">←</button><button id="next-page" class="page-button" type="button" aria-label="下一页">→</button></div></div>
+                </section>
+                <details id="response-details" class="response-details" hidden><summary>查看接口响应</summary><pre id="result" tabindex="0"></pre></details>
+            </section>
+        </div>
+    </main>
+    <footer class="app-footer"><span>SQLFINDER <span class="footer-separator">/</span> 自然语言问数</span><span>以生成的 SQL 和实际数据核对答案</span></footer>
+</div>
+</body>
+</html>

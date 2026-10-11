@@ -1,0 +1,10 @@
+# Copy to application-local.yml (ignored by Git), then fill in local settings.
+spring:
+  datasource:
+    url: ${SQLFINDER_DB_URL:jdbc:mysql://localhost:3306/mybatis}
+    username: ${SQLFINDER_DB_USERNAME:sqlfinder_reader}
+    password: ${SQLFINDER_DB_PASSWORD:}
+
+sqlfinder:
+  llm:
+    api-key: ${DEEPSEEK_API_KEY:}

@@ -1,0 +1,33 @@
+spring:
+  config:
+    import: optional:file:./config/auth.properties
+  application:
+    name: sqlfinder-server
+
+  profiles:
+    default: local
+    group:
+      local:
+        - local-metadata
+
+  datasource:
+    url: "${SQLFINDER_DB_URL:jdbc:mysql://127.0.0.1:3306/mybatis?useSSL=false&serverTimezone=Asia/Shanghai}"
+    username: "${SQLFINDER_DB_USERNAME:sqlfinder_reader}"
+    password: ${SQLFINDER_DB_PASSWORD:}
+    hikari:
+      maximum-pool-size: 5
+      read-only: true
+
+server:
+  port: 8081
+
+sqlfinder:
+  metadata:
+    catalog: mybatis
+    allowed-tables:
+      - tb_shop
+      - tb_shop_type
+  llm:
+    base-url: https://api.deepseek.com
+    model: deepseek-flash
+    api-key: ${DEEPSEEK_API_KEY:}

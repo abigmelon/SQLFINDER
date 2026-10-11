@@ -1,0 +1,22 @@
+# Local credentials and configuration
+/src/main/resources/application-local.yml
+/config/auth.properties
+/config/runtime.properties
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Build output, IDE files and test artifacts
+/target/
+/node_modules/
+/output/
+/.idea/
+/.vscode/
+*.iml
+*.log
+Thumbs.db
+.DS_Store
