@@ -1,8 +1,6 @@
 package com.sqlfinder.chat.application;
 
-/**
- * SQL文本检查
- */
+/** SQL文本检查 */
 final class SqlLexicalGuard {
     private SqlLexicalGuard() { }
 

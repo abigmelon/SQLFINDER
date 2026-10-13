@@ -25,7 +25,7 @@ import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** 本机初始化测试：哈希配置可绑定，UTF-8 边界、确认、取消、拒绝覆盖及密码清理。 */
+/** 账号初始化测试 */
 class LoginSetupTest {
     @TempDir Path directory;
     private Path config() { return directory.resolve("config/auth.properties"); }
@@ -52,6 +52,7 @@ class LoginSetupTest {
         assertTrue(hash.startsWith("$2a$12$"));
         assertTrue(new BCryptPasswordEncoder().matches(secret, hash));
         assertTrue(accounts.users().get(0).enabled());
+        assertTrue(accounts.users().get(0).settingsAdmin());
         // 验证实际 Spring Config Data 文件导入，而不仅是手工构造 Binder。
         new WebApplicationContextRunner().withUserConfiguration(AuthUserConfiguration.class)
                 .withPropertyValues("spring.profiles.active=test", "spring.config.import=" + config().toUri())

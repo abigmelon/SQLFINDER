@@ -3,6 +3,8 @@ package com.sqlfinder.chat.infrastructure;
 import com.sqlfinder.chat.application.QueryExecutionException;
 import com.sqlfinder.chat.application.SqlValidationException;
 import com.sqlfinder.chat.application.SqlValidator;
+import com.sqlfinder.chat.application.RequestExecution;
+import com.sqlfinder.chat.application.RequestStoppedException;
 import com.sqlfinder.chat.config.QueryExecutionProperties;
 import com.sqlfinder.chat.model.QueryResult;
 import com.sqlfinder.chat.model.ValidatedSql;
@@ -23,6 +25,12 @@ import org.mockito.InOrder;
 import javax.sql.DataSource;
 import java.sql.*;
 import java.util.List;
+import java.util.UUID;
+import java.time.Duration;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -30,9 +38,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
-/**
- * JDBC 执行器测试：查询边界、截断与资源释放
- */
+/** 查询执行器测试 */
 class JdbcQueryExecutorTest {
     private static final String SQL = "SELECT id FROM tb_shop";
 
@@ -85,6 +91,61 @@ class JdbcQueryExecutorTest {
         verify(connection, never()).commit();
     }
 
+    @ParameterizedTest @ValueSource(booleans = {false, true})
+    void stoppingBlockedStatementCancelsDriverRollsBackAndClosesResources(boolean timedOut) throws Exception {
+        var started = new CountDownLatch(1);
+        var cancelled = new CountDownLatch(1);
+        when(statement.executeQuery()).thenAnswer(call -> {
+            started.countDown();
+            assertTrue(cancelled.await(3, TimeUnit.SECONDS));
+            throw new SQLException("driver query interrupted");
+        });
+        doAnswer(call -> { cancelled.countDown(); return null; }).when(statement).cancel();
+        var execution = new RequestExecution(UUID.randomUUID(), "test-reader", Duration.ofSeconds(10));
+        var query = executor(true, 2);
+        var input = candidate();
+        var task = new FutureTask<QueryResult>(() -> {
+            try (var scope = execution.bind()) { return query.execute("test-reader", input); }
+        });
+        var worker = new Thread(task);
+        worker.start();
+        try {
+            assertTrue(started.await(2, TimeUnit.SECONDS));
+            if (timedOut) execution.expire(); else execution.cancel();
+            var failure = assertThrows(ExecutionException.class, () -> task.get(2, TimeUnit.SECONDS));
+            assertEquals(timedOut ? "REQUEST_TIMEOUT" : "REQUEST_CANCELLED",
+                    assertInstanceOf(RequestStoppedException.class, failure.getCause()).code());
+            verify(statement).cancel();
+            verify(statement).close();
+            verify(connection).rollback();
+            verify(connection).close();
+            verifyNoInteractions(rs);
+        } finally { cancelled.countDown(); worker.join(3000); }
+    }
+
+    @Test void cancellationDuringResultReadingNeverPublishesPartialRows() throws Exception {
+        var execution = new RequestExecution(UUID.randomUUID(), "test-reader", Duration.ofSeconds(10));
+        when(rs.next()).thenAnswer(call -> { execution.cancel(); return true; });
+        try (var scope = execution.bind()) {
+            RequestStoppedException failure = assertThrows(RequestStoppedException.class,
+                    () -> executor(true, 2).execute("test-reader", candidate()));
+            assertEquals("REQUEST_CANCELLED", failure.code());
+        }
+        verify(rs, never()).getObject(anyInt());
+        verifyResourcesReleased();
+    }
+
+    @Test void totalBudgetAlsoBoundsJdbcTimeoutAndUnregistersOnSuccess() throws Exception {
+        var execution = new RequestExecution(UUID.randomUUID(), "test-reader", Duration.ofMillis(1800));
+        when(rs.next()).thenReturn(false);
+        try (var scope = execution.bind()) { executor(true, 2).execute("test-reader", candidate()); }
+        verify(statement).setQueryTimeout(2);
+        execution.cancel();
+        // 回调已注销，完成后的取消不能触及被释放的语句。
+        verify(statement, never()).cancel();
+        verifyResourcesReleased();
+    }
+
     @Test
     void disabledExecutionDoesNotAccessMetadataOrDatabase() {
         QueryExecutionException error = assertThrows(QueryExecutionException.class,
@@ -93,10 +154,13 @@ class JdbcQueryExecutorTest {
         verifyNoInteractions(metadataService, dataSource);
     }
 
-    @Test
-    void forgedCandidateIsRevalidatedBeforeOpeningConnection() {
-        // 合法摘要不能让 DELETE 通过校验。
-        ValidatedSql forged = new ValidatedSql("DELETE FROM tb_shop", candidate().validation());
+    @ParameterizedTest
+    @ValueSource(strings = {"DELETE FROM tb_shop", "INSERT INTO tb_shop (id) VALUES (1)",
+            "UPDATE tb_shop SET id = 1", "CREATE TABLE forbidden (id INT)",
+            "DROP TABLE tb_shop", "ALTER TABLE tb_shop ADD forbidden INT", "TRUNCATE TABLE tb_shop"})
+    void forgedWriteCandidateIsRejectedBeforeOpeningConnection(String sql) {
+        // 即使伪造合法校验摘要，写语句也不能取得查询连接。
+        ValidatedSql forged = new ValidatedSql(sql, candidate().validation());
         assertThrows(SqlValidationException.class,
                 () -> executor(true, 2).execute("test-reader", forged));
         verify(metadataService).getAuthorizedSchemas();
@@ -385,15 +449,18 @@ class JdbcQueryExecutorTest {
                 Arguments.of(10L, 10L),
                 Arguments.of(1.5F, 1.5F),
                 Arguments.of(2.5D, 2.5D),
-                Arguments.of(new java.math.BigDecimal("123.45"), new java.math.BigDecimal("123.45")),
+                Arguments.of(new java.math.BigDecimal("123.4500"), "123.4500"),
                 Arguments.of(new java.math.BigInteger("18446744073709551615"),
-                        new java.math.BigInteger("18446744073709551615")),
+                        "18446744073709551615"),
+                Arguments.of(Long.MAX_VALUE,"9223372036854775807"),
+                Arguments.of(Long.MIN_VALUE,"-9223372036854775808"),
+                Arguments.of(9_007_199_254_740_991L,9_007_199_254_740_991L),
                 Arguments.of("中文商铺", "中文商铺"),
                 Arguments.of(new byte[]{0, 1, 2}, "AAEC"),
                 Arguments.of(java.sql.Date.valueOf("2026-10-10"), "2026-10-10"),
                 Arguments.of(java.sql.Time.valueOf("12:34:56"), "12:34:56"),
                 Arguments.of(java.sql.Timestamp.valueOf("2026-10-10 12:34:56.123"),
-                        "2026-10-10 12:34:56.123"),
+                        "2026-10-10T12:34:56.123"),
                 Arguments.of(java.time.LocalDate.of(2026, 10, 10), "2026-10-10"),
                 Arguments.of(java.time.LocalDateTime.of(2026, 10, 10, 12, 34, 56),
                         "2026-10-10T12:34:56"),
@@ -510,5 +577,34 @@ class JdbcQueryExecutorTest {
                 new TableSchema("mybatis", "tb_shop_type", "", List.of())));
         assertThrows(SqlValidationException.class, () -> executor(true, 2).execute("test-reader", prior));
         verifyNoInteractions(dataSource);
+    }
+    @Test void emptyResultRetainsDecimalMetadataAndUnknownNullability() throws Exception {
+        when(resultMetadata.getColumnType(1)).thenReturn(Types.DECIMAL);
+        when(resultMetadata.getColumnTypeName(1)).thenReturn("DECIMAL");
+        when(resultMetadata.getPrecision(1)).thenReturn(38); when(resultMetadata.getScale(1)).thenReturn(18);
+        when(resultMetadata.isNullable(1)).thenReturn(ResultSetMetaData.columnNullableUnknown);
+        when(rs.next()).thenReturn(false);
+        var result=executor(true,2).execute("test-reader",candidate());
+        assertTrue(result.rows().isEmpty());
+        var column=result.columnMetadata().get(0);
+        assertEquals("id",column.name()); assertEquals("DECIMAL",column.kind()); assertEquals("exact-string",column.encoding());
+        assertEquals(38,column.precision()); assertEquals(18,column.scale()); assertNull(column.nullable());
+        assertTrue(new ObjectMapper().readTree(new ObjectMapper().writeValueAsString(result)).path("columnMetadata").get(0).path("nullable").isNull());
+        verifyResourcesReleased();
+    }
+    @Test void metadataFailureRollsBackAndDoesNotPublishPartialResult() throws Exception {
+        when(resultMetadata.getColumnType(1)).thenThrow(new SQLException("private driver details"));
+        var error=assertThrows(QueryExecutionException.class,()->executor(true,2).execute("test-reader",candidate()));
+        assertEquals("QUERY_FAILED",error.getCode()); verifyResourcesReleased(); verify(rs,never()).next();
+    }
+    @Test void decimalWithHugeExponentIsRejectedBeforePlainStringAllocation() throws Exception {
+        when(rs.next()).thenReturn(true); when(rs.getObject(1)).thenReturn(new java.math.BigDecimal("1E+100000000"));
+        assertEquals("QUERY_RESULT_TOO_LARGE",assertThrows(QueryExecutionException.class,()->executor(true,2).execute("test-reader",candidate())).getCode());
+        verifyResourcesReleased();
+    }
+    @Test void unknownNumberImplementationCannotReachJsonSerializer() throws Exception {
+        when(rs.next()).thenReturn(true); when(rs.getObject(1)).thenReturn(new java.util.concurrent.atomic.AtomicInteger(42));
+        assertEquals("QUERY_UNSUPPORTED_VALUE",assertThrows(QueryExecutionException.class,()->executor(true,2).execute("test-reader",candidate())).getCode());
+        verifyResourcesReleased();
     }
 }

@@ -9,9 +9,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
-/**
- * 登录账号配置：用户名、BCrypt 哈希、启用状态和明确的表授权，不保存明文密码。
- */
+/** 登录账号配置 */
 @ConfigurationProperties(prefix = "sqlfinder.auth")
 public record AuthProperties(List<Account> users) {
     public AuthProperties {
@@ -22,7 +20,8 @@ public record AuthProperties(List<Account> users) {
             String username,
             String passwordHash,
             @DefaultValue("true") boolean enabled,
-            List<String> allowedTables) {
+            List<String> allowedTables,
+            @DefaultValue("false") boolean settingsAdmin) {
 
         @ConstructorBinding
         public Account {
@@ -33,7 +32,11 @@ public record AuthProperties(List<Account> users) {
 
         // 保留原有构造方式，兼容现有测试。
         public Account(String username, String passwordHash, boolean enabled) {
-            this(username, passwordHash, enabled, List.of());
+            this(username, passwordHash, enabled, List.of(), false);
+        }
+
+        public Account(String username, String passwordHash, boolean enabled, List<String> allowedTables) {
+            this(username, passwordHash, enabled, allowedTables, false);
         }
 
         @Override

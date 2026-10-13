@@ -6,6 +6,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 import com.sqlfinder.auth.tool.LoginSetup;
 
+/** 应用启动入口 */
+
 @ConfigurationPropertiesScan
 @SpringBootApplication
 public class SqlFinderApplication {

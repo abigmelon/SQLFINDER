@@ -9,7 +9,7 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 
-/** 登录用户来源：读取受控配置，以 BCrypt 验证密码，替代 Spring 临时默认账号。 */
+/** 登录用户来源 */
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 @EnableConfigurationProperties(AuthProperties.class)
@@ -21,7 +21,9 @@ public class AuthUserConfiguration {
     public UserDetailsService userDetailsService(AuthProperties properties) {
         properties.validateAccounts();
         var users = properties.users().stream().map(account -> User.withUsername(account.username())
-                .password(account.passwordHash()).disabled(!account.enabled()).roles("USER").build()).toList();
+                .password(account.passwordHash()).disabled(!account.enabled())
+                .roles(account.settingsAdmin() ? new String[]{"USER", "SETTINGS_ADMIN"} : new String[]{"USER"})
+                .build()).toList();
         return new InMemoryUserDetailsManager(users);
     }
 }

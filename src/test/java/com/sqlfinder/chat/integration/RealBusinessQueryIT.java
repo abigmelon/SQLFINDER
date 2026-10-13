@@ -37,10 +37,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/**
- * 真实业务验收：授权表结构、分类统计与关联结果的数据库参考对照。
- * 默认测试不执行，需显式 -Dtest=RealBusinessQueryIT -Dsqlfinder.live-query=true。
- */
+/** 真实业务查询验收 */
 @EnabledIfSystemProperty(named = "sqlfinder.live-query", matches = "true")
 @ActiveProfiles("local")
 @Import(SecurityTestAccounts.class)

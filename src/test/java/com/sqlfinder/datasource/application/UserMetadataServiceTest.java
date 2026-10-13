@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static com.sqlfinder.auth.support.TestTableAuthorization.*;
 import static org.junit.jupiter.api.Assertions.*;
 
-/** 用户表权限回归：身份、全局交集、明确授权及结构泄漏边界，不连接数据库。 */
+/** 用户表授权测试 */
 class UserMetadataServiceTest {
     private final TableSchema shop = new TableSchema("mybatis", "tb_shop", "", List.of());
     private final TableSchema type = new TableSchema("mybatis", "tb_shop_type", "", List.of());

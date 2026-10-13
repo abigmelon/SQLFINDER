@@ -6,6 +6,8 @@ import org.springframework.context.annotation.Configuration;
 import java.util.ArrayList;
 import java.util.List;
 
+/** 表结构读取配置 */
+
 @ConfigurationProperties(prefix = "sqlfinder.metadata")
 public class MetadataProperties {
 

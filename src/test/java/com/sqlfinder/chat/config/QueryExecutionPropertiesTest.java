@@ -10,9 +10,7 @@ import org.springframework.context.annotation.Configuration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * 查询配置测试：默认值、配置绑定与非法边界
- */
+/** 查询配置测试 */
 class QueryExecutionPropertiesTest {
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             .withUserConfiguration(TestConfiguration.class);
@@ -23,8 +21,19 @@ class QueryExecutionPropertiesTest {
     }
 
     @Test
-    void missingConfigurationUsesSafeDefaults() {
+    void missingConfigurationEnablesBoundedReadOnlyQueries() {
         runner.run(context -> {
+            assertThat(context).hasNotFailed();
+            QueryExecutionProperties properties = context.getBean(QueryExecutionProperties.class);
+            assertThat(properties.enabled()).isTrue();
+            assertThat(properties.timeoutSeconds()).isEqualTo(5);
+            assertThat(properties.maxRows()).isEqualTo(1000);
+        });
+    }
+
+    @Test
+    void executionCanStillBeExplicitlyDisabledForValidationOnly() {
+        runner.withPropertyValues("sqlfinder.query.enabled=false").run(context -> {
             assertThat(context).hasNotFailed();
             QueryExecutionProperties properties = context.getBean(QueryExecutionProperties.class);
             assertThat(properties.enabled()).isFalse();

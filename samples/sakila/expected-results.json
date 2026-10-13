@@ -1,0 +1,679 @@
+[
+  {
+    "id": "rental-range",
+    "sql": "SELECT MIN(rental_date) AS first_rental, MAX(rental_date) AS last_rental,\n       COUNT(*) AS rental_count, COUNT(return_date) AS returned_count FROM rental",
+    "columns": [
+      "first_rental",
+      "last_rental",
+      "rental_count",
+      "returned_count"
+    ],
+    "rows": [
+      [
+        "2005-05-24T22:53:30",
+        "2006-02-14T15:16:03",
+        "16044",
+        "15861"
+      ]
+    ]
+  },
+  {
+    "id": "payment-range",
+    "sql": "SELECT MIN(payment_date) AS first_payment, MAX(payment_date) AS last_payment,\n       COUNT(*) AS payment_count, SUM(amount) AS total_revenue FROM payment",
+    "columns": [
+      "first_payment",
+      "last_payment",
+      "payment_count",
+      "total_revenue"
+    ],
+    "rows": [
+      [
+        "2005-05-24T22:53:30",
+        "2006-02-14T15:16:03",
+        "16049",
+        "67416.51"
+      ]
+    ]
+  },
+  {
+    "id": "monthly-revenue",
+    "sql": "SELECT DATE_FORMAT(payment_date, '%Y-%m') AS month, SUM(amount) AS revenue\nFROM payment GROUP BY DATE_FORMAT(payment_date, '%Y-%m') ORDER BY month",
+    "columns": [
+      "month",
+      "revenue"
+    ],
+    "rows": [
+      [
+        "2005-05",
+        "4824.43"
+      ],
+      [
+        "2005-06",
+        "9631.88"
+      ],
+      [
+        "2005-07",
+        "28373.89"
+      ],
+      [
+        "2005-08",
+        "24072.13"
+      ],
+      [
+        "2006-02",
+        "514.18"
+      ]
+    ]
+  },
+  {
+    "id": "top-categories",
+    "sql": "SELECT c.name AS category, COUNT(r.rental_id) AS rental_count\nFROM category c JOIN film_category fc ON fc.category_id = c.category_id\nJOIN inventory i ON i.film_id = fc.film_id\nJOIN rental r ON r.inventory_id = i.inventory_id\nGROUP BY c.category_id, c.name ORDER BY rental_count DESC, category ASC LIMIT 5",
+    "columns": [
+      "category",
+      "rental_count"
+    ],
+    "rows": [
+      [
+        "Sports",
+        "1179"
+      ],
+      [
+        "Animation",
+        "1166"
+      ],
+      [
+        "Action",
+        "1112"
+      ],
+      [
+        "Sci-Fi",
+        "1101"
+      ],
+      [
+        "Family",
+        "1096"
+      ]
+    ]
+  },
+  {
+    "id": "never-rented",
+    "sql": "SELECT f.film_id, f.title FROM film f\nLEFT JOIN inventory i ON i.film_id = f.film_id\nLEFT JOIN rental r ON r.inventory_id = i.inventory_id\nGROUP BY f.film_id, f.title HAVING COUNT(r.rental_id) = 0 ORDER BY f.film_id",
+    "columns": [
+      "film_id",
+      "title"
+    ],
+    "rows": [
+      [
+        "14",
+        "ALICE FANTASIA"
+      ],
+      [
+        "33",
+        "APOLLO TEEN"
+      ],
+      [
+        "36",
+        "ARGONAUTS TOWN"
+      ],
+      [
+        "38",
+        "ARK RIDGEMONT"
+      ],
+      [
+        "41",
+        "ARSENIC INDEPENDENCE"
+      ],
+      [
+        "87",
+        "BOONDOCK BALLROOM"
+      ],
+      [
+        "108",
+        "BUTCH PANTHER"
+      ],
+      [
+        "128",
+        "CATCH AMISTAD"
+      ],
+      [
+        "144",
+        "CHINATOWN GLADIATOR"
+      ],
+      [
+        "148",
+        "CHOCOLATE DUCK"
+      ],
+      [
+        "171",
+        "COMMANDMENTS EXPRESS"
+      ],
+      [
+        "192",
+        "CROSSING DIVORCE"
+      ],
+      [
+        "195",
+        "CROWDS TELEMARK"
+      ],
+      [
+        "198",
+        "CRYSTAL BREAKING"
+      ],
+      [
+        "217",
+        "DAZED PUNK"
+      ],
+      [
+        "221",
+        "DELIVERANCE MULHOLLAND"
+      ],
+      [
+        "318",
+        "FIREHOUSE VIETNAM"
+      ],
+      [
+        "325",
+        "FLOATS GARDEN"
+      ],
+      [
+        "332",
+        "FRANKENSTEIN STRANGER"
+      ],
+      [
+        "359",
+        "GLADIATOR WESTWARD"
+      ],
+      [
+        "386",
+        "GUMP DATE"
+      ],
+      [
+        "404",
+        "HATE HANDICAP"
+      ],
+      [
+        "419",
+        "HOCUS FRIDA"
+      ],
+      [
+        "495",
+        "KENTUCKIAN GIANT"
+      ],
+      [
+        "497",
+        "KILL BROTHERHOOD"
+      ],
+      [
+        "607",
+        "MUPPET MILE"
+      ],
+      [
+        "642",
+        "ORDER BETRAYED"
+      ],
+      [
+        "669",
+        "PEARL DESTINY"
+      ],
+      [
+        "671",
+        "PERDITION FARGO"
+      ],
+      [
+        "701",
+        "PSYCHO SHRUNK"
+      ],
+      [
+        "712",
+        "RAIDERS ANTITRUST"
+      ],
+      [
+        "713",
+        "RAINBOW SHOCK"
+      ],
+      [
+        "742",
+        "ROOF CHAMPION"
+      ],
+      [
+        "801",
+        "SISTER FREDDY"
+      ],
+      [
+        "802",
+        "SKY MIRACLE"
+      ],
+      [
+        "860",
+        "SUICIDES SILENCE"
+      ],
+      [
+        "874",
+        "TADPOLE PARK"
+      ],
+      [
+        "909",
+        "TREASURE COMMAND"
+      ],
+      [
+        "943",
+        "VILLAIN DESPERATE"
+      ],
+      [
+        "950",
+        "VOLUME HOUSE"
+      ],
+      [
+        "954",
+        "WAKE JAWS"
+      ],
+      [
+        "955",
+        "WALLS ARTIST"
+      ]
+    ]
+  },
+  {
+    "id": "country-revenue",
+    "sql": "SELECT co.country, COUNT(DISTINCT cu.customer_id) AS customer_count,\n       COALESCE(SUM(p.amount), 0) AS revenue\nFROM country co JOIN city ci ON ci.country_id = co.country_id\nJOIN address a ON a.city_id = ci.city_id\nJOIN customer cu ON cu.address_id = a.address_id\nLEFT JOIN payment p ON p.customer_id = cu.customer_id\nGROUP BY co.country_id, co.country ORDER BY revenue DESC, co.country ASC LIMIT 10",
+    "columns": [
+      "country",
+      "customer_count",
+      "revenue"
+    ],
+    "rows": [
+      [
+        "India",
+        "60",
+        "6630.27"
+      ],
+      [
+        "China",
+        "53",
+        "5802.73"
+      ],
+      [
+        "United States",
+        "36",
+        "4110.32"
+      ],
+      [
+        "Japan",
+        "31",
+        "3471.74"
+      ],
+      [
+        "Mexico",
+        "30",
+        "3307.04"
+      ],
+      [
+        "Brazil",
+        "28",
+        "3200.52"
+      ],
+      [
+        "Russian Federation",
+        "28",
+        "3045.87"
+      ],
+      [
+        "Philippines",
+        "20",
+        "2381.32"
+      ],
+      [
+        "Turkey",
+        "15",
+        "1662.12"
+      ],
+      [
+        "Nigeria",
+        "13",
+        "1511.48"
+      ]
+    ]
+  },
+  {
+    "id": "average-rental-days",
+    "sql": "SELECT c.name AS category, ROUND(AVG(DATEDIFF(r.return_date, r.rental_date)), 2) AS average_days\nFROM category c JOIN film_category fc ON fc.category_id = c.category_id\nJOIN inventory i ON i.film_id = fc.film_id\nJOIN rental r ON r.inventory_id = i.inventory_id\nWHERE r.return_date IS NOT NULL\nGROUP BY c.category_id, c.name ORDER BY average_days DESC, category ASC",
+    "columns": [
+      "category",
+      "average_days"
+    ],
+    "rows": [
+      [
+        "Games",
+        "5.20"
+      ],
+      [
+        "Sports",
+        "5.20"
+      ],
+      [
+        "Comedy",
+        "5.15"
+      ],
+      [
+        "Music",
+        "5.07"
+      ],
+      [
+        "Documentary",
+        "5.06"
+      ],
+      [
+        "Sci-Fi",
+        "5.06"
+      ],
+      [
+        "Family",
+        "5.05"
+      ],
+      [
+        "Horror",
+        "5.05"
+      ],
+      [
+        "Foreign",
+        "5.04"
+      ],
+      [
+        "Action",
+        "5.03"
+      ],
+      [
+        "New",
+        "5.02"
+      ],
+      [
+        "Classics",
+        "4.94"
+      ],
+      [
+        "Children",
+        "4.93"
+      ],
+      [
+        "Drama",
+        "4.89"
+      ],
+      [
+        "Animation",
+        "4.88"
+      ],
+      [
+        "Travel",
+        "4.81"
+      ]
+    ]
+  },
+  {
+    "id": "overview-counts",
+    "sql": "SELECT (SELECT COUNT(*) FROM film) AS film_count, (SELECT COUNT(*) FROM customer) AS customer_count, (SELECT COUNT(*) FROM rental) AS rental_count",
+    "columns": [
+      "film_count",
+      "customer_count",
+      "rental_count"
+    ],
+    "rows": [
+      [
+        "1000",
+        "599",
+        "16044"
+      ]
+    ]
+  },
+  {
+    "id": "unreturned-count",
+    "sql": "SELECT COUNT(*) AS unreturned_count FROM rental WHERE return_date IS NULL",
+    "columns": [
+      "unreturned_count"
+    ],
+    "rows": [
+      [
+        "183"
+      ]
+    ]
+  },
+  {
+    "id": "no-inventory-count",
+    "sql": "SELECT COUNT(*) AS film_count FROM film f WHERE NOT EXISTS (SELECT 1 FROM inventory i WHERE i.film_id = f.film_id)",
+    "columns": [
+      "film_count"
+    ],
+    "rows": [
+      [
+        "42"
+      ]
+    ]
+  },
+  {
+    "id": "stocked-never-rented",
+    "sql": "SELECT COUNT(*) AS film_count FROM film f WHERE EXISTS (SELECT 1 FROM inventory i WHERE i.film_id = f.film_id) AND NOT EXISTS (SELECT 1 FROM inventory i JOIN rental r ON r.inventory_id = i.inventory_id WHERE i.film_id = f.film_id)",
+    "columns": [
+      "film_count"
+    ],
+    "rows": [
+      [
+        "0"
+      ]
+    ]
+  },
+  {
+    "id": "top-customer-value",
+    "sql": "SELECT c.customer_id, c.first_name, c.last_name, p.revenue, COALESCE(r.rental_count, 0) AS rental_count\nFROM customer c JOIN (SELECT customer_id, SUM(amount) AS revenue FROM payment GROUP BY customer_id) p ON p.customer_id = c.customer_id\nLEFT JOIN (SELECT customer_id, COUNT(*) AS rental_count FROM rental GROUP BY customer_id) r ON r.customer_id = c.customer_id\nORDER BY p.revenue DESC, c.customer_id ASC LIMIT 10",
+    "columns": [
+      "customer_id",
+      "first_name",
+      "last_name",
+      "revenue",
+      "rental_count"
+    ],
+    "rows": [
+      [
+        "526",
+        "KARL",
+        "SEAL",
+        "221.55",
+        "45"
+      ],
+      [
+        "148",
+        "ELEANOR",
+        "HUNT",
+        "216.54",
+        "46"
+      ],
+      [
+        "144",
+        "CLARA",
+        "SHAW",
+        "195.58",
+        "42"
+      ],
+      [
+        "137",
+        "RHONDA",
+        "KENNEDY",
+        "194.61",
+        "39"
+      ],
+      [
+        "178",
+        "MARION",
+        "SNYDER",
+        "194.61",
+        "39"
+      ],
+      [
+        "459",
+        "TOMMY",
+        "COLLAZO",
+        "186.62",
+        "38"
+      ],
+      [
+        "469",
+        "WESLEY",
+        "BULL",
+        "177.60",
+        "40"
+      ],
+      [
+        "468",
+        "TIM",
+        "CARY",
+        "175.61",
+        "39"
+      ],
+      [
+        "236",
+        "MARCIA",
+        "DEAN",
+        "175.58",
+        "42"
+      ],
+      [
+        "181",
+        "ANA",
+        "BRADLEY",
+        "174.66",
+        "34"
+      ]
+    ]
+  },
+  {
+    "id": "monthly-store-revenue",
+    "sql": "SELECT DATE_FORMAT(p.payment_date, '%Y-%m') AS month, s.store_id, SUM(p.amount) AS revenue\nFROM payment p JOIN staff s ON s.staff_id = p.staff_id\nGROUP BY DATE_FORMAT(p.payment_date, '%Y-%m'), s.store_id ORDER BY month, s.store_id",
+    "columns": [
+      "month",
+      "store_id",
+      "revenue"
+    ],
+    "rows": [
+      [
+        "2005-05",
+        "1",
+        "2621.83"
+      ],
+      [
+        "2005-05",
+        "2",
+        "2202.60"
+      ],
+      [
+        "2005-06",
+        "1",
+        "4776.36"
+      ],
+      [
+        "2005-06",
+        "2",
+        "4855.52"
+      ],
+      [
+        "2005-07",
+        "1",
+        "14003.54"
+      ],
+      [
+        "2005-07",
+        "2",
+        "14370.35"
+      ],
+      [
+        "2005-08",
+        "1",
+        "11853.65"
+      ],
+      [
+        "2005-08",
+        "2",
+        "12218.48"
+      ],
+      [
+        "2006-02",
+        "1",
+        "234.09"
+      ],
+      [
+        "2006-02",
+        "2",
+        "280.09"
+      ]
+    ]
+  },
+  {
+    "id": "top-films-inventory",
+    "sql": "SELECT f.film_id, f.title, COUNT(r.rental_id) AS rental_count, COUNT(DISTINCT i.inventory_id) AS inventory_count\nFROM film f JOIN inventory i ON i.film_id = f.film_id LEFT JOIN rental r ON r.inventory_id = i.inventory_id\nGROUP BY f.film_id, f.title ORDER BY rental_count DESC, f.film_id ASC LIMIT 10",
+    "columns": [
+      "film_id",
+      "title",
+      "rental_count",
+      "inventory_count"
+    ],
+    "rows": [
+      [
+        "103",
+        "BUCKET BROTHERHOOD",
+        "34",
+        "8"
+      ],
+      [
+        "738",
+        "ROCKETEER MOTHER",
+        "33",
+        "8"
+      ],
+      [
+        "331",
+        "FORWARD TEMPLE",
+        "32",
+        "8"
+      ],
+      [
+        "382",
+        "GRIT CLOCKWORK",
+        "32",
+        "8"
+      ],
+      [
+        "489",
+        "JUGGLER HARDLY",
+        "32",
+        "8"
+      ],
+      [
+        "730",
+        "RIDGEMONT SUBMARINE",
+        "32",
+        "8"
+      ],
+      [
+        "767",
+        "SCALAWAG DUCK",
+        "32",
+        "8"
+      ],
+      [
+        "31",
+        "APACHE DIVINE",
+        "31",
+        "8"
+      ],
+      [
+        "369",
+        "GOODFELLAS SALUTE",
+        "31",
+        "8"
+      ],
+      [
+        "418",
+        "HOBBIT ALIEN",
+        "31",
+        "8"
+      ]
+    ]
+  }
+]

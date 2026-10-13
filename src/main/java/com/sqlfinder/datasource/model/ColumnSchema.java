@@ -1,12 +1,6 @@
 package com.sqlfinder.datasource.model;
 
-/**
- * 表示一个字段
- * @param name
- * @param dataType
- * @param nullable
- * @param comment
- */
+/** 字段结构 */
 public record ColumnSchema(
         String name,
         String dataType,

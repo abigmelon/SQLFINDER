@@ -10,7 +10,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-/** 用户表授权：全局白名单与账号授权取交集，供结构接口、编排和执行复核共同使用。 */
+/** 用户表授权 */
 @Service
 public class UserMetadataService {
     private final MetadataService metadata;

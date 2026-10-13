@@ -1,0 +1,106 @@
+{
+  "dataset": "sqlfinder_sakila",
+  "scope": "确定性参考SQL验收；默认测试不调用真实模型。真实模型评估需显式启用且会使用API额度。",
+  "comparison": "比较实际数据而非SQL文本：字段语义、统计口径、行数、排序及精确数值。等价SQL可接受；别名变化可手动映射，不能掩盖重复计数或遗漏。",
+  "cases": [
+    {
+      "id": "rental-range",
+      "question": "租赁数据的起止时间、总次数和已归还次数分别是多少？",
+      "criterion": "按租赁日期统计，归还次数使用COUNT(return_date)。",
+      "reference": "expected-results.json#rental-range"
+    },
+    {
+      "id": "payment-range",
+      "question": "付款数据的起止时间、总笔数和付款总额分别是多少？",
+      "criterion": "已收金额按payment.amount求和，不根据租赁单价推算。",
+      "reference": "expected-results.json#payment-range"
+    },
+    {
+      "id": "monthly-revenue",
+      "question": "按年月统计全部付款金额，按时间升序排列。",
+      "criterion": "按付款日期分组，仅显示有付款的月份；不补没有数据的月份。",
+      "reference": "expected-results.json#monthly-revenue"
+    },
+    {
+      "id": "top-categories",
+      "question": "租借次数最多的五个影片类别是什么？返回类别名称和租借次数。",
+      "criterion": "按租赁记录计数，类别并列时按类别名称升序。",
+      "reference": "expected-results.json#top-categories"
+    },
+    {
+      "id": "never-rented",
+      "question": "哪些影片从未被租借过，包括没有库存的影片？按影片编号升序。",
+      "criterion": "包含没有库存的电影，不能将无库存电影漏掉。",
+      "reference": "expected-results.json#never-rented"
+    },
+    {
+      "id": "country-revenue",
+      "question": "按客户国家统计去重客户数量和全部付款金额，列出收入最高的十个国家。",
+      "criterion": "客户数必须去重，付款不得重复求和；收入并列按国家名升序。",
+      "reference": "expected-results.json#country-revenue"
+    },
+    {
+      "id": "average-rental-days",
+      "question": "各影片类别已归还租赁的平均租期是多少？按日历天数计算并保留两位小数。",
+      "criterion": "排除NULL return_date；DATEDIFF是日期差，不是精确24小时数。",
+      "reference": "expected-results.json#average-rental-days"
+    },
+    {
+      "id": "overview-counts",
+      "question": "分别统计电影总数、客户总数、租赁总次数。",
+      "criterion": "独立子查询统计三张表，不能三表直接笛卡尔关联计数。",
+      "reference": "expected-results.json#overview-counts"
+    },
+    {
+      "id": "unreturned-count",
+      "question": "尚未归还的租赁有多少条？",
+      "criterion": "尚未归还是return_date IS NULL；不能用等于NULL。",
+      "reference": "expected-results.json#unreturned-count"
+    },
+    {
+      "id": "no-inventory-count",
+      "question": "没有任何库存副本的影片有多少部？",
+      "criterion": "电影维度计数，不是库存维度；NOT EXISTS包含零库存影片。",
+      "reference": "expected-results.json#no-inventory-count"
+    },
+    {
+      "id": "stocked-never-rented",
+      "question": "有库存但从未被租借的影片有多少部？",
+      "criterion": "必须有库存，且所有库存副本均无租赁；与零库存影片区别。",
+      "reference": "expected-results.json#stocked-never-rented"
+    },
+    {
+      "id": "top-customer-value",
+      "question": "累计付款金额最高的十位客户是谁？返回客户编号、姓名、付款总额和租赁次数。",
+      "criterion": "付款与租赁分别聚合后关联，避免两张明细表交叉相乘；同额按客户编号升序。",
+      "reference": "expected-results.json#top-customer-value"
+    },
+    {
+      "id": "monthly-store-revenue",
+      "question": "按收款员工所属门店统计每月付款金额，按月份和门店编号升序。",
+      "criterion": "门店归属按payment.staff_id -> staff.store_id，不按客户或库存归属。",
+      "reference": "expected-results.json#monthly-store-revenue"
+    },
+    {
+      "id": "top-films-inventory",
+      "question": "被租借次数最多的十部影片是什么？同时返回影片编号、名称、租赁次数和库存副本数量。",
+      "criterion": "库存副本使用COUNT(DISTINCT inventory_id)避免被租赁连接倍增；并列按影片编号升序。",
+      "reference": "expected-results.json#top-films-inventory"
+    }
+  ],
+  "followUp": {
+    "questions": [
+      "统计每个影片类别的租借次数，按次数降序、类别名称升序。",
+      "只看前五名。",
+      "再加上这五个类别的库存副本数量。"
+    ],
+    "criteria": [
+      "追问保留影片类别和租借次数口径。",
+      "第二轮应与top-categories基线一致。",
+      "第三轮应保留同一前五类别，库存副本不能被租赁连接重复计数。",
+      "新对话不应继承上述限制，重新生成保留原问题和原前置分支。"
+    ],
+    "note": "此追问组需要真实模型或显式的模型stub运行工作流；固定SQL对照通过不能证明模型理解了上下文。"
+  },
+  "results": "参考结果已从原始样例数据独立查询生成；SakilaQueryIT再通过生产SQL校验器和只读执行器逐题比较。"
+}

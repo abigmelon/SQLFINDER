@@ -11,6 +11,8 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 import java.security.Principal;
 
+/** 表结构查询接口 */
+
 @Profile("local-metadata")
 @RestController
 @RequestMapping("/api/datasource")

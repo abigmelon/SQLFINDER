@@ -1,4 +1,4 @@
-/* 真实 Edge/Chromium 页面测试：读取源码静态文件，拦截所有 API；不触及模型或数据库。 */
+/* 问数工作台测试 */
 const { test, before, after } = require("node:test");
 const assert = require("node:assert/strict");
 const http = require("node:http");
@@ -19,12 +19,70 @@ const answer = (status = "QUERY_SUCCEEDED", extra = {}) => ({ status, question: 
     errorCode: null, truncated: false, ...extra });
 let browser, server, origin;
 
+test("停止发送带认证校验的取消请求，并等待后端确认", async t => {
+    let finish, requestId, stops = 0;
+    const { page, requests } = await pageFor(t, {
+        onQuestion: (route, fulfill) => {
+            requestId = route.request().headers()["x-request-id"];
+            return new Promise(resolve => { finish = () => resolve(fulfill({ errorCode: "REQUEST_CANCELLED", message: "本次请求已停止。", requestId }, 409)); });
+        },
+        onRun: async (route, fulfill) => {
+            if (route.request().method() === "GET") return fulfill({ requestId, status: "CANCELLED", durationMs: 100, stageDurations: { MODEL_REQUEST: 100 } });
+            assert.equal(route.request().method(), "POST");
+            assert.ok(route.request().headers()["x-csrf-token"]);
+            assert.equal(new URL(route.request().url()).pathname, `/api/chat/requests/${requestId}/cancel`);
+            stops++;
+            await fulfill({ requestId, status: "CANCELLED" });
+            finish();
+        }
+    });
+    await page.locator("#question").fill("慢查询");
+    await page.locator("#submit-button").click();
+    await page.waitForFunction(() => !document.getElementById("stop-button").hidden);
+    await page.waitForTimeout(100);
+    assert.match(requestId, /^[0-9a-f-]{36}$/);
+    await page.locator("#stop-button").click();
+    await page.waitForFunction(() => !document.getElementById("submit-button").disabled);
+    assert.equal(await page.locator("#status-title").innerText(), "已停止");
+    assert.equal(await page.locator("#stop-button").isVisible(), false);
+    assert.equal(stops, 1);
+    assert.equal(requests.length, 1);
+    assert.equal(await page.locator("#question").inputValue(), "慢查询");
+});
+
+test("总预算超时保留问题并展示后端原因", async t => {
+    const { page } = await pageFor(t, { onQuestion: (route, fulfill) => fulfill({
+        errorCode: "REQUEST_TIMEOUT", message: "本次请求超过总时限，请简化问题后重试。",
+        requestId: route.request().headers()["x-request-id"]
+    }, 408) });
+    await submit(page, "一个很慢的问题");
+    assert.equal(await page.locator("#status-title").innerText(), "查询未完成");
+    assert.match(await page.locator("#message").innerText(), /总时限/);
+    assert.match(await page.locator("#error-detail").innerText(), /REQUEST_TIMEOUT/);
+    assert.equal(await page.locator("#question").inputValue(), "一个很慢的问题");
+    assert.equal(await page.locator("#stop-button").isVisible(), false);
+});
+
+test("完成后可展开阶段耗时，详情失败不影响结果", async t => {
+    const { page } = await pageFor(t, { onRun: (route, fulfill) => fulfill({
+        status: "QUERY_SUCCEEDED", stage: "HISTORY", durationMs: 250,
+        stageDurations: { MODEL_REQUEST: 180, EXECUTION: 50, HISTORY: 20 }
+    }) });
+    await submit(page);
+    await page.waitForFunction(() => !document.getElementById("workflow-details").hidden);
+    await page.locator("#workflow-details summary").click();
+    assert.match(await page.locator("#workflow-result").innerText(), /正在查询数据：50 ms/);
+    assert.equal(await page.locator("#status-title").innerText(), "查询完成");
+    assert.equal(await page.locator("#table-section").isVisible(), true);
+});
+
 before(async () => {
     await fs.mkdir(output, { recursive: true });
     server = http.createServer(async (request, response) => {
         const pathname = new URL(request.url, "http://localhost").pathname;
         const assets = { "/": "index.html", "/index.html": "index.html", "/styles.css": "styles.css", "/app.js": "app.js",
-            "/auth.js": "auth.js", "/login.html": "login.html", "/login.js": "login.js" };
+            "/auth.js": "auth.js", "/login.html": "login.html", "/login.js": "login.js", "/chat.css": "chat.css",
+            "/chart-data.js":"chart-data.js","/charts.js":"charts.js","/vendor/echarts.min.js":"vendor/echarts.min.js" };
         const file = assets[pathname];
         if (!file) { response.writeHead(404).end(); return; }
         try {
@@ -46,6 +104,7 @@ after(async () => {
 
 async function pageFor(t, options = {}) {
     const context = await browser.newContext({ viewport: options.viewport || { width: 1440, height: 1000 },
+        deviceScaleFactor: options.deviceScaleFactor || 1,
         reducedMotion: "reduce", acceptDownloads: true });
     const page = await context.newPage();
     const errors = [], requests = [], authRequests = [];
@@ -87,6 +146,14 @@ async function pageFor(t, options = {}) {
             if (options.onPolicy) return options.onPolicy(route, fulfill);
             return fulfill({ ...policy, executionEnabled: !!options.enabled });
         }
+        if (pathname.startsWith("/api/chat/requests/")) {
+            if (options.onRun) return options.onRun(route, fulfill);
+            return fulfill({ errorCode: "REQUEST_NOT_FOUND", message: "请求不存在。" }, 404);
+        }
+        if (pathname.startsWith("/api/chat/conversations")) {
+            if (options.onHistory) return options.onHistory(route, fulfill);
+            return fulfill({ items: [], hasMore: false, nextOffset: 0 });
+        }
         if (pathname === "/api/datasource/schema") {
             if (options.onSchema) return options.onSchema(route, fulfill);
             return fulfill(options.schemas || schemas, options.schemaStatus || 200);
@@ -115,7 +182,498 @@ async function submit(page, question = "统计商铺") {
     await page.waitForFunction(() => document.querySelector(".answer-panel").getAttribute("aria-busy") === "false"
         && !document.getElementById("status-banner").hidden);
 }
+
+test("对话布局：问题消息、底部输入、SQL 默认折叠并可展开", async t => {
+    const { page } = await pageFor(t);
+    await submit(page, "一共有多少家商铺？");
+    assert.equal(await page.locator("#question-message").innerText(), "一共有多少家商铺？");
+    assert.equal(await visible(page, "#sql-body"), false);
+    assert.equal(await page.locator("#sql-toggle").getAttribute("aria-expanded"), "false");
+    await page.locator("#sql-toggle").click();
+    assert.equal(await visible(page, "#sql-body"), true);
+    assert.equal(await page.locator("#sql").innerText(), sql);
+    await page.locator("#sql-toggle").click();
+    assert.equal(await visible(page, "#sql-body"), false);
+    const composer = await page.locator(".composer-dock").boundingBox();
+    assert.ok(composer.y > 650 && composer.y + composer.height <= 1000);
+    assert.equal(await page.locator("#question").inputValue(), "");
+});
+test("本次查询切换恢复完整结果，不再次调用模型", async t => {
+    let calls = 0;
+    const { page, requests } = await pageFor(t, { onQuestion: (r, fulfill) => fulfill(++calls === 1 ? answer()
+        : answer("NEEDS_CLARIFICATION", { sql: null, rows: [], columns: [], message: "请补充时间范围。" })) });
+    await submit(page, "第一个问题");
+    await submit(page, "第二个问题");
+    assert.equal(await page.locator(".past-message").count(), 1);
+    assert.equal(await page.locator(".past-message").count(), 1);
+    await page.getByRole("button", { name: "查看回答：第一个问题", exact: true }).click();
+    assert.equal(await page.locator("#question-message").innerText(), "第一个问题");
+    assert.equal(await page.locator("tbody tr").count(), 2);
+    assert.equal(await page.locator("#result-filter").inputValue(), "");
+    await page.getByRole("button", { name: "查看回答：第二个问题", exact: true }).click();
+    assert.equal(await visible(page, "#table-section"), false);
+    assert.equal(await visible(page, "#sql-section"), false);
+    assert.equal(requests.length, 2);
+    await page.screenshot({ path: path.join(output, "chat-conversation-desktop.png"), fullPage: true });
+});
+test("新对话清除全部页面历史与数据", async t => {
+    const { page } = await pageFor(t);
+    await submit(page, "查询甲"); await submit(page, "查询乙");
+    await page.locator("#reset-button").click();
+    assert.equal(await page.locator(".past-message").count(), 0);
+    assert.equal(await page.locator(".past-message").count(), 0);
+    assert.equal(await visible(page, "#current-question"), false);
+    assert.equal(await visible(page, "#empty-state"), true);
+});
+test("历史查询上限为十次，不写浏览器持久存储", async t => {
+    const { page } = await pageFor(t);
+    for (let i = 0; i < 11; i++) await submit(page, `私有测试问题${i}`);
+    assert.equal(await page.locator(".past-message").count(), 9);
+    assert.equal(await page.getByRole("button", { name: "查看回答：私有测试问题0", exact: true }).count(), 0);
+    assert.equal(await page.evaluate(() => JSON.stringify([Object.entries(localStorage),Object.entries(sessionStorage)]).includes("私有测试问题")), false);
+});
+test("历史错误恢复保留错误码和请求标识", async t => {
+    let calls=0;
+    const { page, requests }=await pageFor(t,{ onQuestion:(r,fulfill)=> ++calls===1
+        ? fulfill({ errorCode:"MODEL_REQUEST_FAILED",message:"连接失败",requestId:"history-error-id" },502) : fulfill(answer()) });
+    await submit(page,"失败的查询"); await submit(page,"成功的查询");
+    await page.getByRole("button", { name: "查看回答：失败的查询", exact: true }).click();
+    assert.match(await page.locator("#error-detail").innerText(),/MODEL_REQUEST_FAILED.*history-error-id/);
+    assert.equal(await visible(page,"#table-section"),false);
+    assert.equal(requests.length,2);
+});
+test("刷新发现表范围变化清空先前查询记录", async t => {
+    let changed=false;
+    const { page }=await pageFor(t,{ onSchema:(r,fulfill)=>fulfill(changed?[schemas[1]]:schemas) });
+    await submit(page); changed=true;
+    await page.locator("#refresh-config").click();
+    await page.waitForFunction(()=>!document.getElementById("refresh-config").disabled);
+    assert.equal(await page.locator(".past-message").count(),0);
+    assert.equal(await visible(page,"#table-section"),false);
+});
+test("历史问题和预览内容按文本显示", async t => {
+    const malicious='<img src=x onerror="window.injected=true">';
+    const { page }=await pageFor(t,{ answer:answer("NEEDS_CLARIFICATION",{sql:null,columns:[],rows:[],message:malicious}) });
+    await submit(page,malicious); await submit(page,"另一个问题");
+    assert.match(await page.locator("#past-messages").innerText(),/onerror/);
+    assert.equal(await page.locator("img").count(),0);
+    assert.equal(await page.evaluate(()=>window.injected),undefined);
+});
+test("手机导航支持焦点、Escape 和遮罩关闭", async t => {
+    const { page }=await pageFor(t,{viewport:{width:390,height:844}});
+    await page.locator("#sidebar-toggle").click();
+    assert.equal(await visible(page,"#chat-sidebar"),true);
+    assert.equal(await page.locator(".chat-main").evaluate(e=>e.inert),true);
+    await page.keyboard.press("Escape");
+    assert.equal(await page.locator(".chat-main").evaluate(e=>e.inert),false);
+    assert.equal(await page.locator("#sidebar-toggle").evaluate(e=>e===document.activeElement),true);
+    await page.locator("#sidebar-toggle").click();
+    await page.locator("#sidebar-backdrop").click({position:{x:360,y:300}});
+    assert.equal(await page.locator("#sidebar-toggle").getAttribute("aria-expanded"),"false");
+});
+test("手机在主区切换旧回答，输入框保持可见", async t => {
+    const { page,requests }=await pageFor(t,{viewport:{width:320,height:800}});
+    await submit(page,"甲"); await submit(page,"乙");
+    await page.getByRole("button", { name: "查看回答：甲", exact: true }).click();
+    assert.equal(await page.locator("#sidebar-toggle").getAttribute("aria-expanded"),"false");
+    const composer=await page.locator(".composer-dock").boundingBox();
+    assert.ok(composer.y+composer.height<=800);
+    assert.equal(requests.length,2);
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+});
+test("缓存恢复后到达的旧响应不会重新显示旧问题或结果", async t => {
+    let release;
+    const pending=new Promise(resolve=>release=resolve);
+    const {page}=await pageFor(t,{onQuestion:async(r,f)=>{await pending;return f(answer());}});
+    await page.locator("#question").fill("旧问题");
+    const sent=page.waitForRequest("**/api/chat/question");
+    await page.locator("#submit-button").click(); await sent;
+    await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent("pageshow",{persisted:true})));
+    await page.waitForFunction(()=>!document.getElementById("refresh-config").disabled);
+    const returned=page.waitForResponse("**/api/chat/question"); release(); await returned;
+    await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+    assert.equal(await visible(page,"#table-section"),false);
+    assert.equal(await page.locator(".past-message").count(),0);
+    assert.equal(await page.locator("#question").inputValue(),"");
+});
 const visible = (page, selector) => page.locator(selector).isVisible();
+const savedId = "00000000-0000-0000-0000-000000000100";
+const savedTurnId = "00000000-0000-0000-0000-000000000101";
+const savedList = (title = "历史商铺统计") => ({ items: [{ id: savedId, title }], hasMore: false, nextOffset: 1 });
+const savedDetail = (extra = {}) => ({ conversationId: savedId, title: "历史商铺统计", contextAvailable: true,
+    turns: [{ id: savedTurnId, rowCount: 14, parentTurnId: null, answer: answer("QUERY_SUCCEEDED", {
+        question: "历史商铺统计", rows: [], conversationId: savedId, turnId: savedTurnId, mode: "NEW" }) }],
+    hasMore: false, nextOffset: 1, ...extra });
+
+test("连续提问时保留上一条实际回答，切换旧回答仍能看到后续消息", async t => {
+    let calls = 0, release;
+    const pending = new Promise(resolve => release = resolve);
+    const { page, requests } = await pageFor(t, { onQuestion: async (r, f) => {
+        if (++calls === 2) await pending;
+        return f(answer("QUERY_SUCCEEDED", { question: r.request().postDataJSON().question,
+            conversationId: savedId, turnId: calls === 1 ? savedTurnId : "second-turn",
+            columns: ["总数"], rows: [{ "总数": calls === 1 ? 1000 : 599 }] }));
+    } });
+    await submit(page, "电影总数");
+    await page.locator("#question").fill("客户总数");
+    const sent = page.waitForRequest("**/api/chat/question");
+    await page.locator("#submit-button").click(); await sent;
+    assert.match(await page.locator("#past-messages").innerText(), /电影总数[\s\S]*1000/);
+    release();
+    await page.waitForFunction(() => !document.getElementById("submit-button").disabled);
+    assert.match(await page.locator("#past-messages").innerText(), /1000/);
+    assert.equal(await page.locator("#result-table tbody td").last().innerText(), "599");
+    await page.getByRole("button", { name: "查看回答：电影总数", exact: true }).click();
+    assert.equal(await page.locator("#result-table tbody td").last().innerText(), "1000");
+    assert.match(await page.locator("#later-messages").innerText(), /客户总数[\s\S]*599/);
+    await page.locator("#later-messages .past-view").click();
+    assert.equal(await page.locator("#question-message").innerText(), "客户总数");
+    assert.match(await page.locator("#past-messages").innerText(), /1000/);
+    assert.equal(requests.length, 2);
+});
+
+const savedSnapshots = () => savedDetail({ turns: [
+    { id: savedTurnId, rowCount: 2, resultSaved: true, answer: answer("QUERY_SUCCEEDED", {
+        question: "类别租借排行", conversationId: savedId, turnId: savedTurnId,
+        columns: ["类别", "租借次数"], rows: [{ "类别": "Sports", "租借次数": 1179 }, { "类别": "Animation", "租借次数": 1166 }] }) },
+    { id: "second-saved-turn", rowCount: 1, resultSaved: true, parentTurnId: savedTurnId,
+        answer: answer("QUERY_SUCCEEDED", { question: "付款合计", conversationId: savedId, turnId: "second-saved-turn",
+            columns: ["合计"], rows: [{ "合计": "67416.51" }],
+            columnMetadata: [{ name: "合计", kind: "DECIMAL", encoding: "exact-string", dataType: "DECIMAL", precision: 20, scale: 2 }] }) }
+] });
+
+test("刷新恢复每轮结果，历史表格可导出并生成图表，不重放查询", async t => {
+    const { page, requests } = await pageFor(t, { onHistory: (r, f) => f(new URL(r.request().url()).pathname.endsWith(savedId)
+        ? savedSnapshots() : savedList("租赁经营分析")) });
+    await page.waitForFunction(() => document.getElementById("question-message").textContent === "付款合计"
+        && !document.getElementById("submit-button").disabled);
+    assert.match(await page.locator("#past-messages").innerText(), /Sports[\s\S]*1179/);
+    assert.equal(await page.locator("#result-table tbody td").last().innerText(), "67416.51");
+    assert.match(await page.locator("#message").innerText(), /已保存当时返回的 1 行/);
+    await page.reload();
+    await page.waitForFunction(() => document.getElementById("question-message").textContent === "付款合计"
+        && !document.getElementById("submit-button").disabled);
+    await page.locator(".chat-scroll").evaluate(e => e.scrollTop = 0);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight), true);
+    await page.screenshot({ path: path.join(output, "history-snapshots-desktop.png"), fullPage: true });
+    const downloadPromise = page.waitForEvent("download");
+    await page.locator("#export-csv").click();
+    const download = await downloadPromise;
+    assert.match(await fs.readFile(await download.path(), "utf8"), /67416\.51/);
+    await page.locator("#past-messages .past-view").click();
+    await chooseChart(page, "bar");
+    assert.equal((await chartOptions(page)).series[0].data[0].label, "Sports");
+    assert.match(await page.locator("#later-messages").innerText(), /67416\.51/);
+    assert.equal(requests.length, 0);
+    await page.locator(".chat-scroll").evaluate(e => e.scrollTop = 0);
+    await page.screenshot({ path: path.join(output, "history-snapshots-chart.png"), fullPage: true });
+});
+
+test("保存的空结果能恢复为空表，过期只限制追问而不隐藏结果", async t => {
+    const detail = savedDetail({ contextAvailable: false });
+    detail.turns[0].resultSaved = true; detail.turns[0].rowCount = 0;
+    const { page, requests } = await pageFor(t, { onHistory: (r, f) => f(new URL(r.request().url()).pathname.endsWith(savedId)
+        ? detail : savedList()) });
+    await page.waitForFunction(() => document.getElementById("message").textContent.includes("上下文已过期"));
+    assert.equal(await visible(page, "#table-section"), true);
+    assert.match(await page.locator("#table-empty").innerText(), /没有符合条件的数据/);
+    assert.equal(await visible(page, "#regenerate-button"), false);
+    assert.equal(requests.length, 0);
+});
+
+test("较长历史结果保留十行预览，打开后可查看全部已返回数据", async t => {
+    let calls = 0;
+    const { page, requests } = await pageFor(t, { onQuestion: (r, f) => f(++calls === 1
+        ? answer("QUERY_SUCCEEDED", { columns: ["id"], rows: Array.from({ length: 55 }, (_, id) => ({ id })) })
+        : answer()) });
+    await submit(page, "库存明细"); await submit(page, "统计类别");
+    assert.equal(await page.locator("#past-messages tbody tr").count(), 10);
+    assert.match(await page.locator("#past-messages").innerText(), /55 行[\s\S]*前 10 行/);
+    await page.locator("#past-messages .past-view").click();
+    assert.equal(await page.locator("#result-table tbody tr").count(), 50);
+    await page.locator("#next-page").click();
+    assert.equal(await page.locator("#result-table tbody tr").count(), 5);
+    assert.equal(requests.length, 2);
+});
+
+test("历史结果的列名、单元格和 SQL 均按文本展示，授权变化会清空全部消息", async t => {
+    const malicious = '<img src=x onerror="window.snapshotInjected=true">';
+    let changed = false;
+    const detail = savedSnapshots();
+    detail.turns[0].answer.columns = [malicious];
+    detail.turns[0].answer.rows = [{ [malicious]: malicious }];
+    detail.turns[0].answer.sql = malicious;
+    const { page } = await pageFor(t, {
+        onHistory: (r, f) => f(new URL(r.request().url()).pathname.endsWith(savedId) ? detail : savedList()),
+        onSchema: (r, f) => f(changed ? [schemas[1]] : schemas)
+    });
+    await page.waitForFunction(() => document.getElementById("question-message").textContent === "付款合计"
+        && !document.getElementById("submit-button").disabled);
+    await page.locator("#past-messages details summary").click();
+    assert.match(await page.locator("#past-messages").innerText(), /onerror/);
+    assert.equal(await page.locator("#past-messages img").count(), 0);
+    assert.equal(await page.evaluate(() => window.snapshotInjected), undefined);
+    await page.locator("#past-messages .past-view").click();
+    changed = true; await page.locator("#refresh-config").click();
+    await page.waitForFunction(() => !document.getElementById("refresh-config").disabled);
+    assert.equal(await page.locator("#past-messages .past-message, #later-messages .past-message").count(), 0);
+    assert.equal(await visible(page, "#table-section"), false);
+});
+
+test("手机能连续查看历史结果，页面和输入框不会横向溢出", async t => {
+    const { page, requests } = await pageFor(t, { viewport: { width: 390, height: 844 },
+        onHistory: (r, f) => f(new URL(r.request().url()).pathname.endsWith(savedId) ? savedSnapshots() : savedList()) });
+    await page.waitForFunction(() => document.getElementById("question-message").textContent === "付款合计"
+        && !document.getElementById("submit-button").disabled);
+    await page.locator(".chat-scroll").evaluate(e => e.scrollTop = 0);
+    assert.match(await page.locator("#past-messages").innerText(), /1179/);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight), true);
+    const composer = await page.locator(".composer-dock").boundingBox();
+    assert.ok(composer.y + composer.height <= 844);
+    await page.screenshot({ path: path.join(output, "history-snapshots-mobile.png"), fullPage: true });
+    assert.equal(requests.length, 0);
+});
+
+test("空白提交不会清除已经显示的结果或会话", async t => {
+    const { page, requests } = await pageFor(t);
+    await submit(page);
+    await page.locator("#submit-button").click();
+    assert.equal(await visible(page, "#table-section"), true);
+    assert.equal(await page.locator("#result-table tbody tr").count(), 2);
+    assert.equal(await page.locator(".past-message").count(), 0);
+    assert.equal(requests.length, 1);
+});
+
+test("刷新恢复历史摘要，继续追问携带原轮次，不自动执行查询", async t => {
+    const { page, requests } = await pageFor(t, { onHistory: (r, f) => f(new URL(r.request().url()).pathname.endsWith(savedId)
+        ? savedDetail() : savedList()), onQuestion: (r, f) => f(answer("QUERY_SUCCEEDED", {
+            conversationId: savedId, turnId: "00000000-0000-0000-0000-000000000102", mode: "FOLLOW_UP" })) });
+    await page.waitForFunction(() => document.getElementById("question-message").textContent === "历史商铺统计"
+        && !document.getElementById("submit-button").disabled);
+    assert.equal(requests.length, 0);
+    assert.equal(await visible(page, "#table-section"), false);
+    assert.match(await page.locator("#message").innerText(), /14 行.*完整结果未保存/);
+    await page.screenshot({ path: path.join(output, "history-restored.png"), fullPage: true });
+    await page.reload();
+    await page.waitForFunction(() => document.getElementById("question-message").textContent === "历史商铺统计"
+        && !document.getElementById("submit-button").disabled);
+    await submit(page, "只看第一类");
+    assert.deepEqual(requests[0], { question: "只看第一类", new_chat: false, resource: savedTurnId, regenerated: false });
+    assert.equal(await visible(page, "#table-section"), true);
+});
+
+test("新对话保留历史列表并清除前置上下文", async t => {
+    const { page, requests } = await pageFor(t, { onHistory: (r, f) => f(new URL(r.request().url()).pathname.endsWith(savedId)
+        ? savedDetail() : savedList()) });
+    await page.waitForFunction(() => !document.getElementById("reset-button").disabled);
+    await page.locator("#reset-button").click();
+    assert.equal(await page.locator(".conversation-item").count(), 1);
+    assert.equal(await visible(page, "#current-question"), false);
+    await submit(page, "新的问题");
+    assert.equal(requests[0].new_chat, true);
+    assert.equal(requests[0].resource, null);
+});
+
+test("过期历史仍可读，隐藏重新生成并提示新对话", async t => {
+    const { page, requests } = await pageFor(t, { onHistory: (r, f) => f(new URL(r.request().url()).pathname.endsWith(savedId)
+        ? savedDetail({ contextAvailable: false }) : savedList()) });
+    await page.waitForFunction(() => document.getElementById("message").textContent.includes("上下文已过期"));
+    assert.equal(await visible(page, "#regenerate-button"), false);
+    await submit(page, "重新开始");
+    assert.equal(requests[0].new_chat, true);
+    assert.equal(requests[0].resource, null);
+});
+
+test("历史重新生成使用来源轮次，并展示新的实际结果", async t => {
+    const { page, requests } = await pageFor(t, { onHistory: (r, f) => f(new URL(r.request().url()).pathname.endsWith(savedId)
+        ? savedDetail() : savedList()) });
+    await page.waitForFunction(() => !document.getElementById("regenerate-button").hidden
+        && !document.getElementById("regenerate-button").disabled);
+    await page.locator("#regenerate-button").click();
+    await page.waitForFunction(() => !document.getElementById("submit-button").disabled);
+    assert.equal(requests[0].regenerated, true);
+    assert.equal(requests[0].resource, savedTurnId);
+    assert.equal(await visible(page, "#table-section"), true);
+});
+
+test("历史列表和轮次分页不自动调用模型", async t => {
+    const { page, requests } = await pageFor(t, { onHistory: (r, f) => {
+        const url = new URL(r.request().url());
+        if (url.pathname.endsWith(savedId)) return f(url.searchParams.get("offset") === "1"
+            ? savedDetail({ turns: [{ id: "older-turn", rowCount: 0, answer: answer("SQL_VALIDATED", {
+                question: "更早问题", rows: [], turnId: "older-turn", conversationId: savedId }) }], nextOffset: 2 })
+            : savedDetail({ hasMore: true }));
+        return f(url.searchParams.get("offset") === "1" ? { items: [{ id: "other-conversation", title: "另一会话" }], nextOffset: 2 }
+            : { ...savedList(), hasMore: true });
+    } });
+    await page.waitForFunction(() => !document.getElementById("earlier-turns").disabled);
+    await page.locator("#earlier-turns").click();
+    await page.waitForFunction(() => document.querySelectorAll(".past-message").length === 1);
+    await page.locator("#more-conversations").click();
+    await page.waitForFunction(() => document.querySelectorAll(".conversation-item").length === 2);
+    assert.equal(requests.length, 0);
+});
+
+test("历史中的 HTML 按文字显示且不能执行脚本", async t => {
+    const text = '<img src=x onerror="window.historyInjected=true">';
+    const detail = savedDetail(); detail.turns[0].answer.question = text;
+    const { page } = await pageFor(t, { onHistory: (r, f) => f(new URL(r.request().url()).pathname.endsWith(savedId) ? detail : savedList(text)) });
+    await page.waitForFunction(() => document.getElementById("question-message").textContent.startsWith("<img"));
+    assert.equal(await page.locator("#saved-conversations img, #question-message img").count(), 0);
+    assert.equal(await page.evaluate(() => window.historyInjected), undefined);
+});
+
+test("历史不可用不阻止新查询，也不会重放历史", async t => {
+    const { page, requests } = await pageFor(t, { onHistory: (r, f) => f({ errorCode: "HISTORY_UNAVAILABLE", message: "暂不可用" }, 503) });
+    assert.match(await page.locator("#saved-note").innerText(), /历史读取失败/);
+    assert.equal(requests.length, 0);
+    await submit(page);
+    assert.equal(requests.length, 1);
+});
+
+const field=(name,kind)=>({name,kind,dataType:{TEXT:"VARCHAR",DECIMAL:"DECIMAL",INTEGER:"BIGINT",DATE:"DATE",DATETIME:"TIMESTAMP",BOOLEAN:"BOOLEAN"}[kind]||"DOUBLE",
+    nullable:true,precision:kind==="DECIMAL"?38:20,scale:kind==="DECIMAL"?4:0,encoding:kind==="DECIMAL"?"exact-string":"number-or-exact-string"});
+const chartAnswer=(rows,extra={})=>answer("QUERY_SUCCEEDED",{columns:["category","amount"],rows:rows.map(([category,amount])=>({category,amount})),
+    columnMetadata:[field("category","TEXT"),field("amount","DECIMAL")],...extra});
+async function chooseChart(page,type) {
+    await page.locator(`[data-result-view="${type}"]`).click();
+    await page.waitForFunction(()=>!document.getElementById("chart-panel").hidden);
+}
+async function chartOptions(page) {
+    return page.evaluate(()=>window.echarts.getInstanceByDom(document.getElementById("chart-canvas"))?.getOption());
+}
+test("推荐柱状图真实绘制，切换不重复请求模型",async t=>{
+    const {page,requests}=await pageFor(t,{answer:chartAnswer([["餐饮","9.00"],["零售","5.00"]])});
+    await submit(page); assert.equal(await visible(page,"#table-view"),true);
+    assert.match(await page.locator("#chart-recommendation").innerText(),/推荐柱状图/);
+    await page.locator("#recommend-chart").click();
+    await page.waitForFunction(()=>!!window.echarts.getInstanceByDom(document.getElementById("chart-canvas")));
+    const options=await chartOptions(page);assert.equal(options.series[0].type,"bar");assert.equal(options.series[0].data[0].value,9);
+    assert.equal(options.series[0].data[0].exact,"9.00");assert.equal(await page.locator("#chart-canvas canvas").count(),1);
+    assert.equal(await visible(page,"#table-view"),false);
+    await page.screenshot({path:path.join(output,"chart-bar-desktop.png")});
+    await chooseChart(page,"pie");assert.equal((await chartOptions(page)).series[0].type,"pie");
+    await page.screenshot({path:path.join(output,"chart-pie-desktop.png")});
+    await page.locator('[data-result-view="table"]').click();assert.equal(await visible(page,"#result-table"),true);assert.equal(requests.length,1);
+});
+test("手动更换数值字段仅重新绘图，不改结果或发起查询",async t=>{
+    const {page,requests}=await pageFor(t,{answer:chartAnswer([["A","9"],["B","5"]],{columns:["category","amount","count"],
+        columnMetadata:[field("category","TEXT"),field("amount","DECIMAL"),field("count","INTEGER")],rows:[{category:"A",amount:"9",count:2},{category:"B",amount:"5",count:3}]})});
+    await submit(page);await chooseChart(page,"bar");await page.locator("#chart-y").selectOption("count");
+    assert.deepEqual((await chartOptions(page)).series[0].data.map(d=>d.value),[2,3]);assert.equal(requests.length,1);
+    await page.locator('[data-result-view="table"]').click();assert.match(await page.locator("#result-table").innerText(),/9/);
+});
+test("日期折线排序并保留 NULL 断点和原始表格顺序",async t=>{
+    const {page}=await pageFor(t,{answer:chartAnswer([["2026-10-12","2"],["2026-10-10","1"],["2026-10-11",null]],
+        {columnMetadata:[field("category","DATE"),field("amount","DECIMAL")]})});
+    await submit(page);assert.match(await page.locator("#chart-recommendation").innerText(),/推荐折线图/);await chooseChart(page,"line");
+    const options=await chartOptions(page);assert.equal(options.series[0].connectNulls,false);
+    assert.equal(options.useUTC,true);assert.equal(options.xAxis[0].type,"time");assert.equal(options.xAxis[0].minInterval,86400000);
+    assert.equal(options.series[0].data[0].label,"2026-10-10");assert.equal(options.series[0].data[1].value[1],null);
+    assert.match(await page.locator("#chart-note").innerText(),/断点/);
+    await page.screenshot({path:path.join(output,"chart-line-desktop.png")});
+    await page.locator('[data-result-view="table"]').click();assert.match(await page.locator("#result-table tbody tr").first().innerText(),/2026-10-12/);
+});
+test("截断结果允许柱形提示局部范围，但拒绝饼图",async t=>{
+    const {page}=await pageFor(t,{answer:chartAnswer([["A","9"],["B","5"]],{truncated:true})});
+    await submit(page);await chooseChart(page,"bar");assert.match(await page.locator("#chart-note").innerText(),/截断/);
+    await chooseChart(page,"pie");assert.match(await page.locator("#chart-error").innerText(),/截断/);
+    assert.equal(await chartOptions(page),undefined);assert.equal(await page.locator("#export-chart").isDisabled(),true);
+});
+test("巨大整数和高精度小数留在表格及 CSV，拒绝绘图",async t=>{
+    const exact="18446744073709551615";
+    const {page}=await pageFor(t,{answer:chartAnswer([["A",exact]],{columnMetadata:[field("category","TEXT"),field("amount","INTEGER")]})});
+    await submit(page);assert.match(await page.locator("#result-table").innerText(),new RegExp(exact));
+    await chooseChart(page,"bar");assert.match(await page.locator("#chart-error").innerText(),/安全范围/);
+    const downloading=page.waitForEvent("download");await page.locator("#export-csv").click();
+    const file=path.join(output,"chart-exact-values.csv");await (await downloading).saveAs(file);assert.match(await fs.readFile(file,"utf8"),new RegExp(exact));
+});
+test("分类重复不静默聚合，表格结果仍可查看",async t=>{
+    const {page}=await pageFor(t,{answer:chartAnswer([["A","9"],["A","5"]])});
+    await submit(page);await chooseChart(page,"bar");assert.match(await page.locator("#chart-error").innerText(),/分组和聚合/);
+    await page.locator('[data-result-view="table"]').click();assert.equal(await page.locator("#result-table tbody tr").count(),2);
+});
+test("空结果、全 NULL 和分类折线有可操作原因",async t=>{
+    let calls=0;
+    const {page}=await pageFor(t,{onQuestion:(r,f)=>f(chartAnswer(++calls===1 ? [] : calls===2 ? [["A",null]] : [["A","1"],["B","2"]]))});
+    await submit(page);await chooseChart(page,"bar");assert.match(await page.locator("#chart-error").innerText(),/没有返回/);
+    await submit(page);await chooseChart(page,"bar");assert.match(await page.locator("#chart-error").innerText(),/全部为 NULL/);
+    await submit(page);await chooseChart(page,"line");assert.match(await page.locator("#chart-error").innerText(),/分类文本/);
+});
+test("负值和零在柱形中保持原值，饼图拒绝负值",async t=>{
+    const {page}=await pageFor(t,{answer:chartAnswer([["A","-5"],["B","0"],["C",null]])});
+    await submit(page);await chooseChart(page,"bar");assert.deepEqual((await chartOptions(page)).series[0].data.map(d=>d.value),[-5,0,null]);
+    await chooseChart(page,"pie");assert.match(await page.locator("#chart-error").innerText(),/负值/);
+});
+test("表格筛选和分页不会改变图表已返回数据范围",async t=>{
+    const {page,requests}=await pageFor(t,{answer:chartAnswer(Array.from({length:60},(_,i)=>["类别"+i,"1"]))});
+    await submit(page);await page.locator("#result-filter").fill("类别59");
+    assert.equal(await page.locator("#result-table tbody tr").count(),1);
+    await chooseChart(page,"bar");assert.equal((await chartOptions(page)).series[0].data.length,60);
+    assert.match(await page.locator("#chart-note").innerText(),/不受表格筛选或分页/);assert.equal(requests.length,1);
+});
+test("历史记录切换重建对应图表，权限拒绝清理旧图表",async t=>{
+    let calls=0;
+    const {page,requests}=await pageFor(t,{onQuestion:(r,f)=>++calls===3 ? f({errorCode:"TABLE_ACCESS_DENIED",message:"授权失效"},403)
+        : f(chartAnswer(calls===1 ? [["甲","9"]] : [["乙","5"]]))});
+    await submit(page,"第一条");await chooseChart(page,"bar");await submit(page,"第二条");await chooseChart(page,"bar");
+    assert.equal((await chartOptions(page)).series[0].data[0].label,"乙");
+    await page.getByRole("button", { name: "查看回答：第一条", exact: true }).click();await chooseChart(page,"bar");
+    assert.equal((await chartOptions(page)).series[0].data[0].label,"甲");assert.equal(requests.length,2);
+    await submit(page,"第三条");assert.equal(await chartOptions(page),undefined);assert.equal(await visible(page,"#table-section"),false);
+});
+test("新对话销毁图表实例和字段选择",async t=>{
+    const {page}=await pageFor(t,{answer:chartAnswer([["A","1"]])});await submit(page);await chooseChart(page,"bar");
+    await page.locator("#reset-button").click();assert.equal(await chartOptions(page),undefined);
+    assert.equal(await page.locator("#chart-y option").count(),0);assert.equal(await visible(page,"#chart-panel"),false);
+});
+test("字段名和分类中的 HTML 不成为 DOM 或脚本",async t=>{
+    const label='<img src=x onerror="window.chartInjected=true">';
+    const {page}=await pageFor(t,{answer:chartAnswer([[label,"9"],["B","5"]])});await submit(page);await chooseChart(page,"bar");
+    assert.equal((await chartOptions(page)).series[0].data[0].label,label);
+    assert.equal(await page.locator("#chart-panel img").count(),0);assert.equal(await page.evaluate(()=>!!window.chartInjected),false);
+});
+test("PNG 导出真实图片，CSV 不受图表选择影响",async t=>{
+    const {page,requests}=await pageFor(t,{answer:chartAnswer([["餐饮","9.00"],["零售","5.00"]])});await submit(page);await chooseChart(page,"pie");
+    assert.match((await chartOptions(page)).title[0].subtext,/占比仅限本次/);
+    const downloading=page.waitForEvent("download");await page.locator("#export-chart").click();const download=await downloading;
+    assert.match(download.suggestedFilename(),/^sqlfinder-pie-.*\.png$/);
+    const file=path.join(output,"chart-export.png");await download.saveAs(file);const bytes=await fs.readFile(file);
+    assert.equal(bytes.subarray(0,8).toString("hex"),"89504e470d0a1a0a");assert.equal(requests.length,1);
+});
+test("精确负小数 CSV 保留负号及小数位，同时仍防止公式注入",async t=>{
+    const {page}=await pageFor(t,{answer:chartAnswer([["A","-5.00"],["B","-=SUM(1,2)"]])});await submit(page);
+    assert.equal(await page.locator("#result-table tbody tr").first().locator("td.numeric").innerText(),"-5.00");
+    const downloading=page.waitForEvent("download");await page.locator("#export-csv").click();
+    const file=path.join(output,"chart-negative-values.csv");await (await downloading).saveAs(file);const text=await fs.readFile(file,"utf8");
+    assert.match(text,/"-5\.00"/);assert.match(text,/"'-=SUM/);
+});
+test("真实图表提示使用富文本渲染，显示精确原值和本次占比",async t=>{
+    const {page}=await pageFor(t,{answer:chartAnswer([["餐饮","9.0000"],["零售","5.0000"]])});await submit(page);await chooseChart(page,"pie");
+    const tip=await page.evaluate(()=>{
+        const chart=window.echarts.getInstanceByDom(document.getElementById("chart-canvas"));
+        chart.dispatchAction({type:"showTip",seriesIndex:0,dataIndex:0});
+        const o=chart.getOption();return {mode:o.tooltip[0].renderMode,text:o.tooltip[0].formatter({data:o.series[0].data[0],percent:64.29})};
+    });
+    assert.equal(tip.mode,"richText");assert.match(tip.text,/9\.0000/);assert.match(tip.text,/本次结果/);
+});
+for (const width of [320,390]) test(`图表 ${width}px 可切换和导出，无整页横向溢出`,async t=>{
+    const {page}=await pageFor(t,{viewport:{width,height:844},answer:chartAnswer([["餐饮","9.00"],["零售","5.00"]])});
+    await submit(page);await chooseChart(page,"bar");assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+    const canvas=await page.locator("#chart-canvas").boundingBox(),dock=await page.locator(".composer-dock").boundingBox();
+    assert.ok(canvas.y+canvas.height<=dock.y+1,"图表不应被底部输入区遮挡");
+    assert.equal(await page.locator("#export-chart").isEnabled(),true);
+    await page.screenshot({path:path.join(output,`chart-bar-mobile-${width}.png`)});
+    await chooseChart(page,"pie");assert.equal((await chartOptions(page)).series[0].type,"pie");
+});
+test("组件加载失败保留表格和 CSV，提供图表失败说明",async t=>{
+    const {page,context}=await pageFor(t,{answer:chartAnswer([["A","1"]])});
+    await context.route("**/vendor/echarts.min.js",r=>r.abort());await page.reload();
+    await page.waitForFunction(()=>!document.getElementById("submit-button").disabled);await submit(page);await chooseChart(page,"bar");
+    assert.match(await page.locator("#chart-error").innerText(),/组件未加载/);
+    await page.locator('[data-result-view="table"]').click();assert.equal(await visible(page,"#result-table"),true);assert.equal(await page.locator("#export-csv").isEnabled(),true);
+});
 
 test("校验模式读取真实字段形状，示例只填入问题，不自动请求", async (t) => {
     const { page, requests } = await pageFor(t);
@@ -130,11 +688,75 @@ test("校验模式读取真实字段形状，示例只填入问题，不自动�
     await page.screenshot({ path: path.join(output, "workbench-empty-desktop.png"), fullPage: true });
 });
 
-test("执行模式来自策略接口，界面明确显示查询和返回上限", async (t) => {
+test("执行模式来自策略接口，简化标签并隐藏冗余限制说明", async (t) => {
     const { page } = await pageFor(t, { enabled: true });
     assert.equal(await page.locator("#submit-label").innerText(), "查询数据");
-    assert.match(await page.locator("#mode-badge").innerText(), /已开启执行/);
-    assert.match(await page.locator("#query-limits").innerText(), /5 秒.*1000 行/);
+    assert.equal(await page.locator("#mode-badge").innerText(), "查询模式");
+    assert.equal(await page.locator("#query-limits").count(), 0);
+});
+
+test("Sakila示例适配授权表，只有点提交才发起问数", async t => {
+    const sampleSchemas = ["film", "payment", "rental", "category", "film_category", "inventory"].map(tableName => ({
+        catalog: "sqlfinder_sakila", tableName, columns: [] }));
+    const { page, requests } = await pageFor(t, { schemas: sampleSchemas, enabled: true });
+    assert.equal(await page.locator("#query-history, #history-heading, #question-help, #mode-note").count(), 0);
+    await page.locator(".example-button").first().click();
+    assert.equal(await page.locator("#question").inputValue(), "一共有多少部电影？");
+    assert.match(await page.locator(".example-button").nth(1).getAttribute("data-question"), /付款金额/);
+    assert.match(await page.locator(".example-button").nth(2).getAttribute("data-question"), /影片类别/);
+    assert.equal(requests.length, 0);
+});
+
+test("成功只显示一条状态，失败保留原因", async t => {
+    let calls = 0;
+    const { page } = await pageFor(t, { enabled: true, onQuestion: (r, f) => f(++calls === 1 ? answer()
+        : answer("QUERY_FAILED", { message: "数据库查询超过时限，请缩小时间范围。", rows: [] })) });
+    await submit(page);
+    assert.equal(await page.locator("#status-title").innerText(), "查询完成");
+    assert.equal(await page.locator("#message").isVisible(), false);
+    await submit(page, "第二个问题");
+    assert.equal(await page.locator("#status-title").innerText(), "查询未完成");
+    assert.match(await page.locator("#message").innerText(), /缩小时间范围/);
+    assert.equal(await page.locator("#past-messages .past-message-status").innerText(), "查询完成");
+    assert.equal(await page.locator("#past-messages .past-message-text").count(), 0);
+});
+
+for (const screen of [
+    { name: "desktop-960", width: 960, height: 920 },
+    { name: "short-window", width: 960, height: 520 },
+    { name: "mobile-390", width: 390, height: 844 },
+    { name: "mobile-320", width: 320, height: 640 },
+    { name: "zoom-200", width: 480, height: 460, scale: 2 }
+]) {
+    test(`新版连续回答布局无整页溢出：${screen.name}`, async t => {
+        const { page } = await pageFor(t, { enabled: true, viewport: { width: screen.width, height: screen.height },
+            deviceScaleFactor: screen.scale || 1 });
+        await submit(page, "统计各类商铺数量");
+        await submit(page, "只显示前五类");
+        assert.equal(await page.locator(".past-message").count(), 1);
+        const dimensions = await page.evaluate(() => ({ height: document.documentElement.scrollHeight, width: document.documentElement.scrollWidth,
+            viewportHeight: innerHeight, viewportWidth: innerWidth }));
+        assert.ok(dimensions.height <= dimensions.viewportHeight, JSON.stringify(dimensions));
+        assert.ok(dimensions.width <= dimensions.viewportWidth, JSON.stringify(dimensions));
+        const composer = await page.locator(".composer-dock").boundingBox();
+        const submitBox = await page.locator("#submit-button").boundingBox();
+        assert.ok(composer.y + composer.height <= screen.height);
+        assert.ok(submitBox.y >= 0 && submitBox.y + submitBox.height <= screen.height);
+        assert.equal(await page.locator("#chat-sidebar #query-history").count(), 0);
+        await page.screenshot({ path: path.join(output, `ui-${screen.name}.png`), fullPage: true });
+    });
+}
+
+test("登录页精简深色且960px和短窗口可用", async t => {
+    const { page } = await pageFor(t, { startPath: "/login.html", viewport: { width: 960, height: 920 } });
+    assert.equal(await page.locator(".login-intro, .login-description, .login-support").count(), 0);
+    assert.equal(await page.locator("#login-button").innerText(), "登录\n↗");
+    assert.equal(await page.locator("body").evaluate(element => getComputedStyle(element).backgroundColor), "rgb(25, 26, 28)");
+    await page.screenshot({ path: path.join(output, "ui-login-960.png"), fullPage: true });
+    await page.setViewportSize({ width: 960, height: 520 });
+    await page.locator("#login-button").scrollIntoViewIfNeeded();
+    assert.equal(await page.locator("#login-button").isVisible(), true);
+    await page.screenshot({ path: path.join(output, "ui-login-short.png"), fullPage: true });
 });
 
 test("空白问题本地拦截，恢复输入焦点", async (t) => {
@@ -148,7 +770,7 @@ test("空白问题本地拦截，恢复输入焦点", async (t) => {
 test("SQL_VALIDATED 展示 SQL 和摘要，不伪造结果表格", async (t) => {
     const { page, requests } = await pageFor(t, { answer: answer("SQL_VALIDATED", { rows: [], columns: [], message: "SQL 已通过规则检查，尚未执行。" }) });
     await submit(page, "  统计商铺  ");
-    assert.deepEqual(requests, [{ question: "统计商铺" }]);
+    assert.deepEqual(requests, [{ question: "统计商铺", new_chat: true, resource: null, regenerated: false }]);
     assert.equal(await page.locator("#sql").innerText(), sql);
     assert.match(await page.locator("#validation-tables").innerText(), /mybatis.tb_shop/);
     assert.equal(await page.locator("#validation-functions").innerText(), "COUNT");
@@ -157,8 +779,71 @@ test("SQL_VALIDATED 展示 SQL 和摘要，不伪造结果表格", async (t) => 
     await page.screenshot({ path: path.join(output, "workbench-validated-desktop.png"), fullPage: true });
 });
 
+test("新对话、继续追问和新对话重置使用不同的上下文字段", async (t) => {
+    let calls = 0;
+    const { page, requests } = await pageFor(t, {
+        onQuestion: (route, fulfill) => {
+            calls++;
+            return fulfill(answer("SQL_VALIDATED", {
+                conversationId: "conversation-1",
+                turnId: `turn-${calls}`,
+                parentTurnId: calls === 1 ? null : "turn-1",
+                mode: calls === 1 ? "NEW" : "FOLLOW_UP"
+            }));
+        }
+    });
+    await submit(page, "第一个问题");
+    await submit(page, "继续追问");
+    assert.equal(requests[0].new_chat, true);
+    assert.equal(requests[0].resource, null);
+    assert.equal(requests[1].new_chat, false);
+    assert.equal(requests[1].resource, "turn-1");
+    assert.equal(requests[1].regenerated, false);
+    await page.locator("#reset-button").click();
+    await submit(page, "新的问题");
+    assert.equal(requests[2].new_chat, true);
+    assert.equal(requests[2].resource, null);
+});
+
+test("重新生成复用原问题并指向原回答", async (t) => {
+    let calls = 0;
+    const { page, requests } = await pageFor(t, {
+        onQuestion: (route, fulfill) => {
+            calls++;
+            return fulfill(answer("SQL_VALIDATED", {
+                conversationId: "conversation-1",
+                turnId: `turn-${calls}`,
+                mode: calls === 1 ? "NEW" : "REGENERATE"
+            }));
+        }
+    });
+    await submit(page, "重新统计");
+    await page.locator("#regenerate-button").click();
+    await page.waitForFunction(() => document.querySelector(".answer-panel").getAttribute("aria-busy") === "false");
+    assert.equal(requests[1].question, "重新统计");
+    assert.equal(requests[1].new_chat, false);
+    assert.equal(requests[1].resource, "turn-1");
+    assert.equal(requests[1].regenerated, true);
+});
+
+test("上下文失效后清除追问指针并提示从新对话开始", async (t) => {
+    let calls = 0;
+    const { page } = await pageFor(t, {
+        onQuestion: (route, fulfill) => {
+            calls++;
+            return calls === 1
+                ? fulfill(answer("SQL_VALIDATED", { conversationId: "conversation-1", turnId: "turn-1", mode: "NEW" }))
+                : fulfill({ errorCode: "CONTEXT_SCHEMA_CHANGED", message: "授权表结构已变化，请开始新对话。", requestId: "context-error" }, 409);
+        }
+    });
+    await submit(page, "第一个问题");
+    await submit(page, "继续追问");
+    assert.equal(await page.locator("#status-title").innerText(), "会话已失效");
+    assert.equal(await page.locator("#question").getAttribute("aria-label"), "新的问题");
+});
+
 for (const [status, title, hasSql] of [["NEEDS_CLARIFICATION", "还需要一点信息", false],
-    ["SQL_REJECTED", "SQL 未通过规则检查", false], ["QUERY_FAILED", "查询未完成", true]]) {
+    ["SQL_REJECTED", "查询未完成", false], ["QUERY_FAILED", "查询未完成", true]]) {
     test(`${status} 正确展示提示和错误边界`, async (t) => {
         const { page } = await pageFor(t, { answer: answer(status, { sql: hasSql ? sql : null,
             validation: hasSql ? answer().validation : null, rows: [], columns: [],
@@ -218,7 +903,7 @@ test("50 行分页、筛选重置页码、无匹配提示与清空筛选", async
     assert.equal(await page.locator("#previous-page").isDisabled(), true);
 });
 
-test("新问题清除旧 SQL、筛选和表格，澄清不会残留上次数据", async (t) => {
+test("澄清回答不残留当前表格，上一条结果仍保留在对话中", async (t) => {
     let calls = 0;
     const { page } = await pageFor(t, { onQuestion: (route, fulfill) => fulfill(++calls === 1 ? answer()
         : answer("NEEDS_CLARIFICATION", { sql: null, validation: null, rows: [], columns: [], message: "请说明时间范围。" })) });
@@ -227,7 +912,8 @@ test("新问题清除旧 SQL、筛选和表格，澄清不会残留上次数据"
     await submit(page, "再问一个问题");
     assert.equal(await visible(page, "#sql-section"), false);
     assert.equal(await visible(page, "#table-section"), false);
-    assert.equal(await page.locator("tbody tr").count(), 0);
+    assert.equal(await page.locator("#result-table tbody tr").count(), 0);
+    assert.equal(await page.locator("#past-messages tbody tr").count(), 2);
     await page.locator("#reset-button").click();
     assert.equal(await page.locator("#question").inputValue(), "");
     assert.equal(await visible(page, "#empty-state"), true);

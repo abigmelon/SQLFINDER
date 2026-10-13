@@ -7,7 +7,7 @@ import com.sqlfinder.datasource.config.MetadataProperties;
 
 import java.util.List;
 
-/** 流程单元测试的明确授权配置；仍使用生产交集计算，不提供匿名或全局回退。 */
+/** 测试表授权配置 */
 public final class TestTableAuthorization {
     private TestTableAuthorization() {}
     public static final List<String> TABLES = List.of("mybatis.tb_shop", "mybatis.tb_shop_type");

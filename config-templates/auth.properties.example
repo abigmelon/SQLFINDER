@@ -1,0 +1,19 @@
+# 登录授权示例
+# Run scripts/configure-login.ps1 to create the real BCrypt login configuration.
+# Append explicit table grants to config/auth.properties; never replace the generated password hash.
+sqlfinder.auth.users[0].allowed-tables[0]=sqlfinder_sakila.actor
+sqlfinder.auth.users[0].allowed-tables[1]=sqlfinder_sakila.address
+sqlfinder.auth.users[0].allowed-tables[2]=sqlfinder_sakila.category
+sqlfinder.auth.users[0].allowed-tables[3]=sqlfinder_sakila.city
+sqlfinder.auth.users[0].allowed-tables[4]=sqlfinder_sakila.country
+sqlfinder.auth.users[0].allowed-tables[5]=sqlfinder_sakila.customer
+sqlfinder.auth.users[0].allowed-tables[6]=sqlfinder_sakila.film
+sqlfinder.auth.users[0].allowed-tables[7]=sqlfinder_sakila.film_actor
+sqlfinder.auth.users[0].allowed-tables[8]=sqlfinder_sakila.film_category
+sqlfinder.auth.users[0].allowed-tables[9]=sqlfinder_sakila.film_text
+sqlfinder.auth.users[0].allowed-tables[10]=sqlfinder_sakila.inventory
+sqlfinder.auth.users[0].allowed-tables[11]=sqlfinder_sakila.language
+sqlfinder.auth.users[0].allowed-tables[12]=sqlfinder_sakila.payment
+sqlfinder.auth.users[0].allowed-tables[13]=sqlfinder_sakila.rental
+sqlfinder.auth.users[0].allowed-tables[14]=sqlfinder_sakila.staff
+sqlfinder.auth.users[0].allowed-tables[15]=sqlfinder_sakila.store

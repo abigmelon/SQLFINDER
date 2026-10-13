@@ -32,9 +32,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-/**
- * HTTP 异常验收：失败阶段、请求错误、响应头与日志脱敏；不调用模型或数据库。
- */
+/** 全局异常处理测试 */
 class GlobalExceptionHandlerTest {
     private static final String PRIVATE_DETAIL = "private-password-model-token-detail";
     private static final String QUESTION = "{\"question\":\"统计商铺数\"}";
@@ -46,7 +44,8 @@ class GlobalExceptionHandlerTest {
     private QuestionOrchestrator orchestrator(MetadataService metadata, PromptBuilder prompt, LlmClient model) {
         return new QuestionOrchestrator(TestTableAuthorization.forMetadata(metadata), prompt, model, new ModelOutputParser(mapper),
                 new SqlValidator(), (userId, candidate) -> { throw new AssertionError("失败请求不能执行 SQL"); },
-                new QueryExecutionProperties(false, 5, 1000));
+                new QueryExecutionProperties(false, 5, 1000),
+                com.sqlfinder.chat.support.ConversationTestStores.create(), new SchemaFingerprint(mapper));
     }
 
     private MockMvc http(QuestionOrchestrator orchestrator) {

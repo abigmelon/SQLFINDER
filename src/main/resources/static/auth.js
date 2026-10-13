@@ -1,4 +1,4 @@
-/* 会话客户端：同源 Cookie、JSON 错误和每次写请求的 CSRF；不保存凭据，不自动重试。 */
+/* 登录会话请求 */
 "use strict";
 (() => {
     class RequestError extends Error {
@@ -34,7 +34,7 @@
                 : "无法连接服务，请检查网络或服务是否启动。", controller.signal.aborted ? "CLIENT_TIMEOUT" : "");
         } finally { clearTimeout(timer); }
     }
-    async function post(url, options = {}) {
+    async function post(url, options = {}, timeout = 120000) {
         // 登录会使旧 token 失效，因此每次读取当前会话的 token。
         const csrf = await requestJson("/api/auth/csrf", {}, 10000);
         if (typeof csrf?.headerName !== "string" || !/^[A-Za-z0-9-]+$/.test(csrf.headerName)
@@ -43,7 +43,7 @@
         }
         const headers = new Headers(options.headers);
         headers.set(csrf.headerName, csrf.token);
-        return requestJson(url, { ...options, method: "POST", headers });
+        return requestJson(url, { ...options, method: "POST", headers }, timeout);
     }
     function loginUrl(reason = "") {
         return "/login.html" + (["expired", "loggedout"].includes(reason) ? `?reason=${reason}` : "");

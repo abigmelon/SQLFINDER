@@ -3,7 +3,7 @@
   "private": true,
   "description": "原生问数页面的真实浏览器测试；页面运行不需要 Node.js",
   "scripts": {
-    "test:frontend": "node --test src/test/frontend/workbench.test.cjs"
+    "test:frontend": "node --test src/test/frontend/*.test.cjs"
   },
   "devDependencies": {
     "playwright": "1.62.1"

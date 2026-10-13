@@ -11,9 +11,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 
-/**
- * SQL校验入口
- */
+/** SQL校验入口 */
 @Component
 public class SqlValidator {
 

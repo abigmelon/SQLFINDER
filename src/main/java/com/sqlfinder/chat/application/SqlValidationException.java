@@ -1,8 +1,6 @@
 package com.sqlfinder.chat.application;
 
-/**
- * SQL校验异常
- */
+/** SQL校验异常 */
 public class SqlValidationException extends IllegalArgumentException {
     private final String code;
 

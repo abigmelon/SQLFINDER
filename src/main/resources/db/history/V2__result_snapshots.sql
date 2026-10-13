@@ -1,0 +1,2 @@
+-- 查询结果快照
+ALTER TABLE history_turn ADD COLUMN IF NOT EXISTS result_saved BOOLEAN NOT NULL DEFAULT FALSE;

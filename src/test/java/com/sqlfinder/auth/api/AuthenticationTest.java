@@ -31,7 +31,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-/** 生产过滤器验收：真实 CSRF、登录、会话轮换和退出；不用 csrf() 绕过 token 接口。 */
+/** 登录安全测试 */
 @WebMvcTest({AuthController.class, ChatController.class, MetadataController.class, HealthController.class})
 @ActiveProfiles({"test", "local-metadata"})
 @Import({SecurityConfig.class, SecurityTestAccounts.class, SecurityTestBackend.class})

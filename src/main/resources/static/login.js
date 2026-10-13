@@ -1,4 +1,4 @@
-/* 登录交互：表单认证、CSRF、会话识别和失败恢复；密码只用于本次提交。 */
+/* 登录页面交互 */
 "use strict";
 (() => {
     const { RequestError, requestJson, post } = window.SqlfinderAuth;
@@ -11,7 +11,7 @@
     function setBusy(value) {
         busy = value;
         for (const id of ["login-button", "username", "password"]) el(id).disabled = value;
-        el("login-button").firstElementChild.textContent = value ? "请稍候…" : "登录工作台";
+        el("login-button").firstElementChild.textContent = value ? "请稍候…" : "登录";
         el("login-form").setAttribute("aria-busy", String(value));
     }
     const reason = new URLSearchParams(location.search).get("reason");

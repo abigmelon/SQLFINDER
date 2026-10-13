@@ -1,32 +1,27 @@
 <!DOCTYPE html>
+<!-- 登录页面 -->
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="color-scheme" content="light">
+    <meta name="color-scheme" content="dark">
     <title>登录 · SQLFINDER</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232854d7'/%3E%3Cpath d='M9 10h14M9 16h9M9 22h14' stroke='white' stroke-width='3'/%3E%3C/svg%3E">
     <link rel="stylesheet" href="/styles.css">
     <script src="/auth.js" defer></script>
     <script src="/login.js" defer></script>
 </head>
-<body>
+<body class="login-page">
 <main class="login-shell">
-    <section class="login-intro" aria-labelledby="intro-heading">
-        <a class="brand" href="/" aria-label="SQLFINDER 首页"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span>SQL<span class="brand-light">FINDER</span><small>问数工作台</small></span></a>
-        <div class="login-intro-copy"><p class="eyebrow">从问题到答案</p><h1 id="intro-heading">每一个问题，<br>都有数据的依据。</h1><p>登录后用自然语言查询，<br>查看 SQL、校验依据与实际结果。</p></div>
-        <p class="login-footer">SQLFINDER / 自然语言问数</p>
-    </section>
     <section class="login-card" aria-labelledby="login-heading">
-        <p class="eyebrow">进入你的工作台</p><h2 id="login-heading">登录 SQLFINDER</h2><p class="login-description">使用你的账号继续。</p>
+        <a class="login-brand" href="/">SQLFINDER</a><h1 id="login-heading">登录</h1>
         <p id="login-notice" class="login-notice" role="status" hidden></p>
         <form id="login-form" novalidate>
             <label for="username">用户名</label><input id="username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required>
             <label for="password">密码</label><input id="password" name="password" type="password" autocomplete="current-password" required>
             <p id="login-message" class="login-message" role="alert" hidden></p>
-            <button id="login-button" class="primary-button" type="submit"><span>登录工作台</span><span aria-hidden="true">↗</span></button>
+            <button id="login-button" class="primary-button" type="submit"><span>登录</span><span aria-hidden="true">↗</span></button>
         </form>
-        <p class="login-support">账号或密码有疑问，请联系项目管理员。</p>
     </section>
 </main>
 </body>

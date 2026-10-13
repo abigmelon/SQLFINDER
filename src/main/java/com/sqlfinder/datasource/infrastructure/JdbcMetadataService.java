@@ -15,6 +15,8 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 
+/** 数据库结构读取 */
+
 @Service
 public class JdbcMetadataService implements MetadataService {
 

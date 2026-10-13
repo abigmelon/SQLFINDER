@@ -17,9 +17,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-/**
- * MVC 注册验收：自动发现全局处理器、正常接口及不存在资源的 HTTP 状态。
- */
+/** 异常处理注册测试 */
 @WebMvcTest(controllers = HealthController.class)
 @Import({SecurityConfig.class, SecurityTestAccounts.class})
 class GlobalExceptionHandlerRegistrationTest {

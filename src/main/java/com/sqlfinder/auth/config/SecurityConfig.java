@@ -18,9 +18,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * 登录安全配置
- */
+/** 登录安全配置 */
 @Configuration
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 public class SecurityConfig {
@@ -36,14 +34,25 @@ public class SecurityConfig {
                                 "/",
                                 "/index.html",
                                 "/styles.css",
+                                "/chat.css",
                                 "/app.js",
+                                "/chart-data.js",
+                                "/charts.js",
+                                "/vendor/echarts.min.js",
+                                "/vendor/ECHARTS-LICENSE.txt",
+                                "/vendor/ECHARTS-NOTICE.txt",
                                 "/auth.js",
                                 "/login.html",
                                 "/login.js",
+                                "/settings.html",
+                                "/settings.js",
+                                "/settings.css",
                                 "/health",
                                 "/error",
                                 "/api/auth/csrf"
                         ).permitAll()
+                        .requestMatchers("/api/settings/access").authenticated()
+                        .requestMatchers("/api/settings/**").hasRole("SETTINGS_ADMIN")
                         .anyRequest().authenticated()
                 )
 

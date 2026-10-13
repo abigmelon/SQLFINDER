@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<!-- 配置设置页面 -->
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <title>SQLFINDER · 设置</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="/settings.css">
+    <script src="/auth.js" defer></script>
+    <script src="/settings.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#model">跳到模型设置</a>
+<div class="shell">
+    <aside class="sidebar">
+        <a class="brand" href="/">SQLFINDER<span>问你的数据</span></a>
+        <a class="back" href="/">← 返回问数</a>
+        <nav aria-label="设置分类"><span class="nav-label">设置</span><a href="#model">模型连接</a><a href="#database">数据库与权限</a></nav>
+        
+    </aside>
+    <main id="model">
+        <header class="settings-header"><h1>设置</h1><button id="check-configuration" type="button">检查配置</button></header><section id="startup-diagnostics" class="startup-diagnostics" aria-live="polite" hidden></section><h2 class="settings-section-title">模型连接</h2>
+        <div id="feedback" class="feedback" role="status" aria-live="polite">正在读取配置…</div>
+        <form id="model-form" hidden>
+            <section class="provider" aria-label="模型提供方"><div><span class="provider-mark" aria-hidden="true">D</span><div><h2>DeepSeek</h2><p>官方 API · https://api.deepseek.com</p></div></div><span class="state" id="key-state">未配置密钥</span></section>
+            <div class="field"><label for="api-key">API key</label><input id="api-key" type="password" maxlength="512" autocomplete="new-password" spellcheck="false" placeholder="填写你的 DeepSeek API key" aria-describedby="key-help"><p id="key-help">已保存的密钥不会显示。留空表示保留现有密钥。</p><label class="check"><input id="clear-key" type="checkbox">清除已保存的密钥</label></div>
+            <div class="fields"><div class="field"><label for="model-name">模型名称</label><input id="model-name" list="model-options" required maxlength="64" pattern="deepseek-[a-z0-9._\-]{1,55}" autocomplete="off" spellcheck="false"><datalist id="model-options"></datalist><p>填写账号支持的模型名称；连接测试会核对可用性。</p></div><div class="field"><label for="timeout">请求超时 <span>秒</span></label><input id="timeout" type="number" min="5" max="90" step="1" required><p>5～90 秒，超过后结束等待。</p></div></div>
+            <div class="actions"><button id="test-model" type="button">测试连接</button><button id="save-model" class="primary" type="submit">保存并启用</button></div>
+            <p class="save-note" id="save-note">保存后用于下一次问数，重启后继续保留。</p>
+        </form>
+        <section id="database" class="next"><h2>数据库与权限</h2><p>填写专用只读账号，测试连接并选择业务表。保存后重启服务，一起启用连接与表范围。</p>
+            <div id="database-feedback" class="feedback" role="status" aria-live="polite">正在读取数据库配置…</div>
+            <div id="database-controls" hidden>
+                <div class="database-summary"><span>正在使用</span><strong id="database-catalog"></strong><span id="connection-state" class="state"></span></div>
+                <p id="connection-note" class="field-help"></p>
+                <form id="connection-form">
+                    <div class="fields"><div class="field"><label for="db-host">MySQL 主机</label><input id="db-host" required maxlength="253" pattern="[A-Za-z0-9]+([.\-][A-Za-z0-9]+)*" placeholder="127.0.0.1" autocomplete="off" spellcheck="false"></div><div class="field"><label for="db-port">端口</label><input id="db-port" type="number" min="1" max="65535" step="1" value="3306" required></div></div>
+                    <div class="fields equal"><div class="field"><label for="db-catalog">数据库名</label><input id="db-catalog" required maxlength="64" pattern="[A-Za-z_][A-Za-z0-9_]{0,63}" autocomplete="off" spellcheck="false"></div><div class="field"><label for="db-username">只读账号</label><input id="db-username" required maxlength="32" pattern="[A-Za-z_][A-Za-z0-9_.\-]{0,31}" autocomplete="off" spellcheck="false"></div></div>
+                    <div class="field"><label for="db-password">数据库密码 <span id="db-password-state"></span></label><input id="db-password" type="password" maxlength="512" autocomplete="new-password" aria-describedby="db-password-help"><p id="db-password-help">密码不会回显。同一目标和账号留空保留原密码；换库或换账号请重新填写。</p><label class="check"><input id="db-clear-password" type="checkbox">这个账号使用空密码</label><label class="check"><input id="db-tls" type="checkbox">使用 TLS 并验证服务器证书和主机名</label></div>
+                    <div class="actions"><button id="test-database" type="button">测试连接并读取表</button></div>
+                    <div id="candidate-results" hidden><p id="candidate-account"></p><p id="candidate-privileges"></p><p id="candidate-limit" class="field-help"></p><fieldset class="table-selection"><legend>用于问数的业务表（最多 50 张）</legend><div id="connection-tables"></div></fieldset><p id="table-access-note" class="field-help">选表设置全局范围，不能替代每个登录账号的表授权。</p><div class="actions"><button id="preview-database" type="button">预览选中表结构</button><button id="save-database" type="submit" class="primary">保存，重启后启用</button></div></div>
+                    <div id="schema-preview" hidden></div>
+                </form>
+                <details class="active-diagnostics" open><summary>检查正在使用的连接</summary><div class="actions"><button id="check-database" type="button">检查当前连接</button></div><div id="database-results" hidden><p id="database-account"></p><p id="database-privileges"></p><ul id="database-tables"></ul></div></details>
+                <form id="grant-form"><h3>生成只读账号脚本</h3><p class="field-help">数据库 SELECT 权限和应用表授权需要分别配置。这里不会执行脚本，也不需要管理员密码。</p><div class="fields"><div class="field"><label for="reader-name">新账号名称</label><input id="reader-name" value="sqlfinder_reader" required pattern="[A-Za-z_][A-Za-z0-9_]{0,31}" maxlength="32" autocomplete="off"></div><div class="field"><label for="reader-host">来源主机</label><input id="reader-host" value="localhost" required maxlength="253" autocomplete="off"></div></div><fieldset id="grant-table-selection"><legend>允许读取的业务表</legend><div id="grant-tables"></div></fieldset><div class="actions"><button id="generate-grants" type="submit">生成授权 SQL</button></div></form>
+                <div id="grant-output" hidden><div class="database-summary"><h3>授权 SQL</h3><button id="copy-grants" type="button">复制 SQL</button></div><pre id="grant-sql" tabindex="0"></pre><p class="field-help">执行前替换密码占位符。新账号可在上方连接表单中配置；每个登录账号仍需在本机 config/auth.properties 明确设置 allowed-tables 为 数据库名.表名。重启后再次检查。已有账号应先核对旧权限。</p></div>
+            </div>
+        </section>
+    </main>
+</div>
+</body>
+</html>

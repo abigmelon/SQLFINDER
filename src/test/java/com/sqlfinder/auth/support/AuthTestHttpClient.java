@@ -13,7 +13,7 @@ import java.time.Duration;
 import static com.sqlfinder.auth.support.SecurityTestAccounts.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-/** HTTP 验收工具：保留真实 Cookie，每次 POST 从生产端点获取当前 CSRF。 */
+/** 认证HTTP测试工具 */
 public final class AuthTestHttpClient {
     private AuthTestHttpClient() {}
 

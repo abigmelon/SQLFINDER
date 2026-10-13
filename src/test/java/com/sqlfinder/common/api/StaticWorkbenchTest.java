@@ -13,7 +13,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-/** 静态资源验收：页面、样式和脚本由 Spring MVC 提供，不请求模型或数据库。 */
+/** 静态页面资源测试 */
 @WebMvcTest(controllers = HealthController.class)
 @Import({SecurityConfig.class, SecurityTestAccounts.class})
 class StaticWorkbenchTest {
@@ -21,7 +21,8 @@ class StaticWorkbenchTest {
 
     @ParameterizedTest
     @CsvSource({"/index.html,text/html", "/styles.css,text/css", "/app.js,text/javascript",
-            "/login.html,text/html", "/auth.js,text/javascript", "/login.js,text/javascript"})
+            "/login.html,text/html", "/auth.js,text/javascript", "/login.js,text/javascript", "/chat.css,text/css",
+            "/chart-data.js,text/javascript","/charts.js,text/javascript","/vendor/echarts.min.js,text/javascript"})
     void workbenchAssetsAreServedWithCorrectMediaType(String path, String mediaType) throws Exception {
         http.perform(get(path)).andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(mediaType));

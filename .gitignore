@@ -2,6 +2,7 @@
 /src/main/resources/application-local.yml
 /config/auth.properties
 /config/runtime.properties
+/config/.model-*.tmp
 .env
 .env.*
 !.env.example
@@ -14,9 +15,18 @@
 /target/
 /node_modules/
 /output/
+/data/
+*.mv.db
+*.trace.db
+*.lock.db
 /.idea/
 /.vscode/
 *.iml
 *.log
 Thumbs.db
 .DS_Store
+# 网页数据库配置含明文密码；原子写入临时文件也不能提交。
+/config/database.properties
+/config/.database-*.tmp
+/config/application-local.yml
+/.sqlfinder-running.lock

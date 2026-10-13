@@ -2,9 +2,7 @@ package com.sqlfinder.common.application;
 
 import java.util.Objects;
 
-/**
- * 问数处理异常
- */
+/** 问数处理异常 */
 public class QuestionProcessingException extends RuntimeException {
 
     public enum Stage {

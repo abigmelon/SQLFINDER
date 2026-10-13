@@ -33,7 +33,7 @@ import static com.sqlfinder.auth.support.AuthTestHttpClient.*;
 import static com.sqlfinder.auth.support.SecurityTestAccounts.USERNAME;
 import static org.junit.jupiter.api.Assertions.*;
 
-/** 随机端口的真实 Tomcat 验收：实际 Cookie/Session/HTTP，业务依赖全部替身。 */
+/** 登录HTTP测试 */
 @ActiveProfiles({"test", "local-metadata"})
 @SpringBootTest(classes = AuthenticationHttpTest.TestApp.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,

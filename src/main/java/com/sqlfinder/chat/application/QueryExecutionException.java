@@ -1,8 +1,6 @@
 package com.sqlfinder.chat.application;
 
-/**
- * 查询执行异常
- */
+/** 查询执行异常 */
 public class QueryExecutionException extends RuntimeException {
     private final String code;
 

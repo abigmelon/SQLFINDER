@@ -30,10 +30,7 @@ import java.util.Locale;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/**
- * 真实 JDBC 验收：截断、空结果、错误回滚、超时取消和单连接池恢复；不请求模型。
- * 显式运行 -Dtest=RealQueryExecutionIT -Dsqlfinder.live-query=true；只读取样例表。
- */
+/** 真实查询执行验收 */
 @EnabledIfSystemProperty(named = "sqlfinder.live-query", matches = "true")
 @ActiveProfiles("local")
 @Import(SecurityTestAccounts.class)

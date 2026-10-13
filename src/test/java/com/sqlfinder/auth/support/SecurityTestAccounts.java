@@ -11,7 +11,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import java.util.Map;
 import java.util.HashMap;
 
-/** 专用测试配置：使用生产用户来源和 BCrypt 校验；不参与普通应用启动。 */
+/** 测试账号配置 */
 @TestConfiguration(proxyBeanMethods = false)
 @Import(AuthUserConfiguration.class)
 public class SecurityTestAccounts {
@@ -36,6 +36,7 @@ public class SecurityTestAccounts {
             for (int i = 0; i < names.length; i++) {
                 values.put("sqlfinder.auth.users[" + i + "].username", names[i]);
                 values.put("sqlfinder.auth.users[" + i + "].password-hash", encoder.encode(passwords[i]));
+                values.put("sqlfinder.auth.users[" + i + "].settings-admin", "false");
             }
             values.put("sqlfinder.auth.users[2].enabled", "false");
             values.put("sqlfinder.auth.users[0].allowed-tables[0]", "mybatis.tb_shop");

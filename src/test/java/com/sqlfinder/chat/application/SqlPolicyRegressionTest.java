@@ -10,9 +10,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/**
- * SQL 规则回归测试：危险语法与嵌套绕过检查
- */
+/** SQL规则回归测试 */
 class SqlPolicyRegressionTest {
     private final SqlValidator validator = new SqlValidator();
     private final List<TableSchema> schemas = List.of(

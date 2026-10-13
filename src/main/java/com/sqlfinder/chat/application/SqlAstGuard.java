@@ -16,9 +16,7 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.TreeSet;
 
-/**
- * SQL语法树检查
- */
+/** SQL语法树检查 */
 final class SqlAstGuard {
     private static final Set<Class<?>> BINARY_OPERATORS = Set.of(
             Addition.class, Subtraction.class, Multiplication.class, Division.class,

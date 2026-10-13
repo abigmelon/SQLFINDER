@@ -1,7 +1,8 @@
-/* 问数工作台样式：冷灰画布、蓝色操作、深蓝查询区与响应式数据表。 */
+/* 页面基础样式 */
 :root {
-    --canvas: #eff3f6; --paper: #fff; --ink: #192c43; --muted: #65758b;
-    --blue: #2854d7; --blue-soft: #edf2ff; --green: #218477; --line: #dce4ed;
+    color-scheme: dark;
+    --canvas: #191a1c; --paper: #222427; --ink: #eceeed; --muted: #a4aba8;
+    --blue: #b5e4c7; --blue-soft: #26372d; --green: #b5e4c7; --line: #393c40;
     --mono: "Cascadia Code", Consolas, monospace;
     --body: "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
     --display: Bahnschrift, "Microsoft YaHei", sans-serif;
@@ -177,4 +178,18 @@ tbody tr:hover td { background: #f8faff; }
 .login-notice { color: #3459a6; background: var(--blue-soft); font-size: 12px; border-radius: 5px; padding: 10px; }
 .login-support { font-size: 11px; color: var(--muted); margin-top: 24px; }
 @media (max-width: 760px) { .login-shell { grid-template-columns: 1fr; gap: 28px; max-width: 460px; padding: 28px 20px; } .login-intro-copy, .login-footer { display: none; } .login-intro { padding: 0; } .login-card { padding: 28px; } }
+
+.login-page { min-height:100dvh; font-size:16px; }
+.login-page .login-shell { display:flex; align-items:center; justify-content:center; min-height:100dvh; padding:32px 20px; max-width:none; }
+.login-page .login-card { width:100%; max-width:440px; padding:42px; border-radius:20px; border-color:var(--line); background:var(--paper); }
+.login-brand { display:inline-block; margin-bottom:24px; text-decoration:none; color:var(--ink); font:600 23px/1.3 Consolas,monospace; letter-spacing:-.6px; }
+.login-page h1 { font:500 32px/1.4 var(--body); margin:0 0 30px; }
+.login-page .login-card label { font-size:16px; margin:22px 0 10px; }
+.login-page .login-card input { background:#141517; color:var(--ink); border-color:var(--line); padding:14px 16px; font-size:17px; min-height:54px; border-radius:10px; }
+.login-page .login-card input:focus { outline:2px solid var(--green); outline-offset:2px; }
+.login-page .primary-button { background:var(--ink); color:#141517; min-height:52px; font-size:16px; border-radius:10px; margin-top:30px; }
+.login-page .primary-button:hover:not(:disabled) { background:#d9dddb; }
+.login-page .login-message { color:#eeae9d; background:#362927; font-size:14px; }
+.login-page .login-notice { color:var(--green); background:var(--blue-soft); font-size:14px; }
+@media(max-width:480px) { .login-page .login-card { padding:30px 24px; } .login-page .login-shell { padding:24px 16px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }

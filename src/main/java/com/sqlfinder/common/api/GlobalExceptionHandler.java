@@ -1,6 +1,7 @@
 package com.sqlfinder.common.api;
 
 import com.sqlfinder.auth.application.TableAccessDeniedException;
+import com.sqlfinder.chat.api.ConversationRequestException;
 import com.sqlfinder.common.application.QuestionProcessingException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,15 +15,33 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 import java.util.UUID;
 
-/**
- * 全局异常处理
- */
+/** 全局异常处理 */
 @RestControllerAdvice
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
+
+    @ExceptionHandler(com.sqlfinder.chat.application.RequestStoppedException.class)
+    public ResponseEntity<ApiErrorResponse> handleRequestStopped(com.sqlfinder.chat.application.RequestStoppedException ex) {
+        return ResponseEntity.status("REQUEST_TIMEOUT".equals(ex.code()) ? HttpStatus.REQUEST_TIMEOUT : HttpStatus.CONFLICT)
+                .header(RequestIdFilter.HEADER, ex.requestId().toString())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(new ApiErrorResponse(ex.code(), ex.getMessage(), ex.requestId().toString()));
+    }
+
+    @ExceptionHandler(com.sqlfinder.chat.application.HistoryStorageException.class)
+    public ResponseEntity<ApiErrorResponse> handleHistoryStorage(com.sqlfinder.chat.application.HistoryStorageException ex) {
+        return failure(HttpStatus.SERVICE_UNAVAILABLE, "HISTORY_UNAVAILABLE", ex.getMessage(), ex);
+    }
+
+    @ExceptionHandler(com.sqlfinder.settings.ModelSettingsException.class)
+    public ResponseEntity<ApiErrorResponse> handleModelSettings(com.sqlfinder.settings.ModelSettingsException ex) {
+        return failure(HttpStatus.valueOf(ex.status()), ex.code(), ex.getMessage(), ex);
+    }
 
     private static final Logger log =
             LoggerFactory.getLogger(GlobalExceptionHandler.class);
@@ -30,6 +49,16 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(TableAccessDeniedException.class)
     public ResponseEntity<ApiErrorResponse> handleTableAccessDenied(TableAccessDeniedException ex) {
         return failure(HttpStatus.FORBIDDEN, "TABLE_ACCESS_DENIED", ex.getMessage(), ex);
+    }
+
+    @ExceptionHandler(ConversationRequestException.class)
+    public ResponseEntity<ApiErrorResponse> handleConversationRequest(ConversationRequestException ex) {
+        HttpStatus status = switch (ex.code()) {
+            case "CONTEXT_NOT_FOUND", "REQUEST_NOT_FOUND" -> HttpStatus.NOT_FOUND;
+            case "CONTEXT_EXPIRED", "CONTEXT_SCHEMA_CHANGED", "REQUEST_ID_REUSED" -> HttpStatus.CONFLICT;
+            default -> HttpStatus.BAD_REQUEST;
+        };
+        return failure(status, ex.code(), ex.getMessage(), ex);
     }
 
     @ExceptionHandler(QuestionProcessingException.class)
@@ -106,6 +135,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         HttpHeaders errorHeaders = new HttpHeaders();
         errorHeaders.putAll(headers);
         errorHeaders.setContentType(MediaType.APPLICATION_JSON);
+        errorHeaders.set(RequestIdFilter.HEADER, error.requestId());
         return super.handleExceptionInternal(
                 ex, error, errorHeaders, statusCode, request);
     }
@@ -125,9 +155,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             String message,
             Exception ex) {
 
+        ApiErrorResponse error = newError(code, message, ex, status);
         return ResponseEntity.status(status)
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(newError(code, message, ex, status));
+                .header(RequestIdFilter.HEADER, error.requestId())
+                .body(error);
     }
 
     private ApiErrorResponse newError(
@@ -136,7 +168,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             Exception ex,
             HttpStatusCode status) {
 
-        String requestId = UUID.randomUUID().toString();
+        String requestId = RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes attributes
+                ? RequestIdFilter.identify(attributes.getRequest()).toString() : UUID.randomUUID().toString();
 
         if (status.is5xxServerError()) {
             Throwable cause =

@@ -11,9 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
-/**
- * SQL 基础校验测试：单条查询、表授权与只读检查
- */
+/** SQL基础校验测试 */
 class SqlValidatorTest {
 
     @ParameterizedTest

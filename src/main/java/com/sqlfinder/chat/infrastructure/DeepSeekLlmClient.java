@@ -3,48 +3,47 @@ package com.sqlfinder.chat.infrastructure;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sqlfinder.chat.application.LlmClient;
-import com.sqlfinder.chat.config.LlmProperties;
+import com.sqlfinder.chat.application.RequestExecution;
+import com.sqlfinder.settings.ModelSettingsService;
+import com.sqlfinder.settings.DeepSeekTransport;
 import com.sqlfinder.chat.model.PromptMessages;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+
+/** 模型调用实现 */
 
 @Service
 public class DeepSeekLlmClient implements LlmClient {
 
-    private final LlmProperties properties;
+    private final ModelSettingsService settings;
     private final ObjectMapper objectMapper;
-    private final HttpClient httpClient;
+    private final DeepSeekTransport transport;
 
     @Autowired
     public DeepSeekLlmClient(
-            LlmProperties properties,
-            ObjectMapper objectMapper) {
-        this.properties = properties;
+            ModelSettingsService settings,
+            ObjectMapper objectMapper,
+            DeepSeekTransport transport) {
+        this.settings = settings;
         this.objectMapper = objectMapper;
-        this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(10))
-                .build();
+        this.transport = transport;
     }
 
     @Override
     public String generateSql(PromptMessages messages) {
-        String apiKey = properties.getApiKey();
+        checkExecution();
+        var configuration = settings.snapshot();
+        String apiKey = configuration.apiKey();
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalStateException("模型apiKey未配置");
         }
 
         Map<String, Object> body = Map.of(
-                "model", properties.getModel(),
+                "model", configuration.model(),
                 "messages", List.of(
                         Map.of("role", "system", "content", messages.systemMessage()),
                         Map.of("role", "user", "content", messages.userMessage())
@@ -57,24 +56,11 @@ public class DeepSeekLlmClient implements LlmClient {
 
         try {
             String requestBody = objectMapper.writeValueAsString(body);
-            String baseUrl = properties.getBaseUrl().replaceAll("/+$", "");
+            var response = transport.send("/chat/completions", configuration, requestBody);
+            checkExecution();
 
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(baseUrl + "/chat/completions"))
-                    .timeout(Duration.ofSeconds(60))
-                    .header("Content-Type", "application/json")
-                    .header("Authorization", "Bearer " + apiKey)
-                    .POST(HttpRequest.BodyPublishers.ofString(
-                            requestBody, StandardCharsets.UTF_8))
-                    .build();
-
-            HttpResponse<String> response = httpClient.send(
-                    request,
-                    HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8)
-            );
-
-            if (response.statusCode() != 200) {
-                throw new IllegalStateException("模型服务返回HTTP " + response.statusCode());
+            if (response.status() != 200) {
+                throw new IllegalStateException("模型服务返回HTTP " + response.status());
             }
 
             JsonNode root = objectMapper.readTree(response.body());
@@ -102,9 +88,16 @@ public class DeepSeekLlmClient implements LlmClient {
             return content.asText();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            checkExecution();
             throw new IllegalStateException("模型请求被中断", e);
         } catch (IOException e) {
+            checkExecution();
             throw new IllegalStateException("模型请求或响应解析失败", e);
         }
+    }
+
+    private void checkExecution() {
+        RequestExecution execution = RequestExecution.current();
+        if (execution != null) execution.check();
     }
 }

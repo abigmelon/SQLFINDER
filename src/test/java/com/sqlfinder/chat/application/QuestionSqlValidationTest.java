@@ -27,9 +27,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-/**
- * 问数流程测试：校验、执行结果、截断与错误显示
- */
+/** 问数流程测试 */
 class QuestionSqlValidationTest {
     private final ObjectMapper mapper = new ObjectMapper();
     private final MetadataService metadata = () -> List.of(new TableSchema("mybatis", "tb_shop", "", List.of()));
@@ -43,6 +41,10 @@ class QuestionSqlValidationTest {
     }
 
     private ApplicationContextRunner chat(String modelJson, boolean enabled, QueryExecutor executor) {
+        return chat(modelJson, new QueryExecutionProperties(enabled, 5, 2), executor);
+    }
+
+    private ApplicationContextRunner chat(String modelJson, QueryExecutionProperties properties, QueryExecutor executor) {
         // 仅注册本流程依赖；兼容接入前后的构造器，不启动 JDBC 或模型客户端。
         return new ApplicationContextRunner()
                 .withBean(UserMetadataService.class, () -> TestTableAuthorization.forMetadata(metadata))
@@ -50,8 +52,10 @@ class QuestionSqlValidationTest {
                 .withBean(LlmClient.class, () -> messages -> modelJson)
                 .withBean(ModelOutputParser.class, () -> new ModelOutputParser(mapper))
                 .withBean(SqlValidator.class, SqlValidator::new)
-                .withBean(QueryExecutionProperties.class, () -> new QueryExecutionProperties(enabled, 5, 2))
+                .withBean(QueryExecutionProperties.class, () -> properties)
                 .withBean(QueryExecutor.class, () -> executor)
+                .withBean(ConversationStore.class, com.sqlfinder.chat.support.ConversationTestStores::create)
+                .withBean(SchemaFingerprint.class, () -> new SchemaFingerprint(mapper))
                 .withBean(QuestionOrchestrator.class)
                 .withBean(ChatController.class);
     }
@@ -64,6 +68,34 @@ class QuestionSqlValidationTest {
         return MockMvcBuilders.standaloneSetup(controller)
                 .defaultRequest(get("/").principal(() -> "test-reader"))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
+    }
+
+    @Test
+    void defaultConfigurationExecutesValidatedQueryAndReturnsDataOverHttp() {
+        var defaults = org.springframework.boot.context.properties.bind.Binder
+                .get(new org.springframework.mock.env.MockEnvironment())
+                .bindOrCreate("sqlfinder.query", QueryExecutionProperties.class);
+        AtomicInteger executions = new AtomicInteger();
+        QueryExecutor executor = (userId, candidate) -> {
+            executions.incrementAndGet();
+            assertEquals("test-reader", userId);
+            assertEquals(List.of("mybatis.tb_shop"), candidate.validation().tables());
+            return new QueryResult(List.of("shop_count"), List.of(Map.of("shop_count", 14L)), false);
+        };
+        chat(answer("SELECT COUNT(*) AS shop_count FROM tb_shop"), defaults, executor).run(context -> {
+            assertThat(context).hasNotFailed();
+            MockMvc mvc = http(context.getBean(ChatController.class));
+            mvc.perform(get("/api/chat/sql-policy"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.executionEnabled").value(true));
+            mvc.perform(post("/api/chat/question").contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"question\":\"统计商铺数\"}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.status").value("QUERY_SUCCEEDED"))
+                    .andExpect(jsonPath("$.columns[0]").value("shop_count"))
+                    .andExpect(jsonPath("$.rows[0].shop_count").value(14));
+            assertEquals(1, executions.get());
+        });
     }
 
     @Test
@@ -203,6 +235,17 @@ class QuestionSqlValidationTest {
             assertEquals("QUERY_SUCCEEDED", response.status());
             assertEquals(List.of("id"), response.columns());
             assertTrue(response.rows().isEmpty());
+        });
+    }
+    @Test void httpResponseForwardsActualFieldMetadataAndExactNumericStrings() {
+        var field=new com.sqlfinder.chat.model.ResultColumn("id","BIGINT UNSIGNED","INTEGER",false,20,0,"number-or-exact-string");
+        QueryExecutor executor=(userId,candidate)->new QueryResult(List.of("id"),List.of(Map.of("id","18446744073709551615")),false,List.of(field));
+        chat(answer("SELECT id FROM tb_shop"),true,executor).run(context->{
+            http(context.getBean(ChatController.class)).perform(post("/api/chat/question").contentType(MediaType.APPLICATION_JSON).content("{\"question\":\"查询编号\"}"))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.rows[0].id").value("18446744073709551615"))
+                    .andExpect(jsonPath("$.columnMetadata[0].name").value("id"))
+                    .andExpect(jsonPath("$.columnMetadata[0].kind").value("INTEGER"))
+                    .andExpect(jsonPath("$.columnMetadata[0].precision").value(20));
         });
     }
 

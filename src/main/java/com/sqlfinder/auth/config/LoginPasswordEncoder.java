@@ -7,7 +7,7 @@ import java.nio.CharBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
-/** 登录密码编码：BCrypt 工作因子 12；拒绝超过 72 字节，防止密码被截断后匹配。 */
+/** 登录密码编码 */
 public final class LoginPasswordEncoder extends BCryptPasswordEncoder {
     public LoginPasswordEncoder() { super(12); }
 

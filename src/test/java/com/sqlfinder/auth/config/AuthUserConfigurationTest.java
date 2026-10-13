@@ -17,7 +17,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
 
-/** 生产账号配置测试：绑定、BCrypt、启停、重复账号、非法配置与日志脱敏。 */
+/** 登录配置测试 */
 class AuthUserConfigurationTest {
     private static final String PASSWORD = "private-test-password";
     private static final String HASH = new BCryptPasswordEncoder(4).encode(PASSWORD);
@@ -34,6 +34,14 @@ class AuthUserConfigurationTest {
             assertThat(context).hasFailed();
             assertThat(context.getStartupFailure()).hasRootCauseMessage(
                     "未配置登录账号；请先运行 --configure-login，或配置 sqlfinder.auth.users。");
+        });
+    }
+    @Test void settingsAdminIsExplicitAndDefaultsToFalse() {
+        account("admin", HASH).withPropertyValues("sqlfinder.auth.users[0].settings-admin=true").run(context -> {
+            assertThat(context).hasNotFailed();
+            var user=context.getBean(UserDetailsService.class).loadUserByUsername("admin");
+            assertTrue(user.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_SETTINGS_ADMIN")));
+            assertTrue(context.getBean(AuthProperties.class).users().get(0).settingsAdmin());
         });
     }
     @Test void configuredAccountsDefaultToEnabledAndOnlyHaveUserRole() {

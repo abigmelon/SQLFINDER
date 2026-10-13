@@ -15,7 +15,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
 import java.util.Properties;
 
-/** 本机账号初始化：终端隐藏输入密码，只将 BCrypt 哈希写入未跟踪配置。 */
+/** 本机账号初始化 */
 public final class LoginSetup {
     private LoginSetup() {}
 
@@ -60,6 +60,7 @@ public final class LoginSetup {
             properties.setProperty("sqlfinder.auth.users[0].username", username);
             properties.setProperty("sqlfinder.auth.users[0].password-hash", hash);
             properties.setProperty("sqlfinder.auth.users[0].enabled", "true");
+            properties.setProperty("sqlfinder.auth.users[0].settings-admin", "true");
             StringWriter content = new StringWriter();
             properties.store(content, "SQLFINDER local login; BCrypt hash only; keep this file private.");
             Path absolute = target.toAbsolutePath().normalize();

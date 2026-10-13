@@ -4,9 +4,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/**
- * SQL过滤规则
- */
+/** SQL过滤规则 */
 public final class SqlPolicy {
     public static final String VERSION = "mysql-readonly-v1";
     public static final int MAX_SQL_LENGTH = 20_000;

@@ -1,10 +1,12 @@
 package com.sqlfinder.chat.infrastructure;
 
 import com.sqlfinder.chat.application.QueryExecutionException;
+import com.sqlfinder.chat.application.RequestExecution;
 import com.sqlfinder.chat.application.QueryExecutor;
 import com.sqlfinder.chat.application.SqlValidator;
 import com.sqlfinder.chat.config.QueryExecutionProperties;
 import com.sqlfinder.chat.model.QueryResult;
+import com.sqlfinder.chat.model.ResultColumn;
 import com.sqlfinder.chat.model.ValidatedSql;
 import com.sqlfinder.datasource.application.UserMetadataService;
 import com.sqlfinder.auth.application.TableAccessDeniedException;
@@ -16,9 +18,7 @@ import javax.sql.DataSource;
 import java.sql.*;
 import java.util.*;
 
-/**
- * JDBC查询执行器
- */
+/** 只读查询执行器 */
 @Service
 public class JdbcQueryExecutor implements QueryExecutor {
     private static final int MAX_COLUMNS = 100;
@@ -46,6 +46,7 @@ public class JdbcQueryExecutor implements QueryExecutor {
 
     @Override
     public QueryResult execute(String userId, ValidatedSql candidate) {
+        checkExecution();
         if (!properties.enabled()) {
             throw new QueryExecutionException("QUERY_DISABLED", "查询执行尚未开启。");
         }
@@ -58,23 +59,28 @@ public class JdbcQueryExecutor implements QueryExecutor {
         } catch (TableAccessDeniedException e) {
             throw e;
         } catch (RuntimeException e) {
+            checkExecution();
             throw new QueryExecutionException("QUERY_METADATA_FAILED", "读取授权表结构失败。", e);
         }
         // 使用服务端授权结构重新校验，不信任传入摘要。
         ValidatedSql checked = sqlValidator.validate(candidate.sql(), schemas);
+        checkExecution();
         String catalog = schemas.get(0).catalog();
         if (!catalog.equals(metadataProperties.getCatalog())) {
             throw new QueryExecutionException("QUERY_CATALOG_MISMATCH", "授权数据库与配置不一致。");
         }
 
         try (Connection connection = dataSource.getConnection()) {
+            checkExecution();
             if (!catalog.equals(connection.getCatalog())) {
                 throw new QueryExecutionException("QUERY_CATALOG_MISMATCH", "查询连接的数据库与授权范围不一致。");
             }
             return executeReadOnly(connection, checked.sql());
         } catch (SQLTimeoutException e) {
+            checkExecution();
             throw new QueryExecutionException("QUERY_TIMEOUT", "查询超时，请缩小查询范围。", e);
         } catch (SQLException e) {
+            checkExecution();
             throw new QueryExecutionException("QUERY_FAILED", "数据库查询失败。", e);
         }
     }
@@ -86,10 +92,25 @@ public class JdbcQueryExecutor implements QueryExecutor {
         QueryResult result;
         try (PreparedStatement statement = connection.prepareStatement(
                 sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)) {
-            statement.setQueryTimeout(properties.timeoutSeconds());
-            statement.setMaxRows(properties.maxRows() + 1);
-            try (ResultSet rs = statement.executeQuery()) {
-                result = readResult(rs);
+            RequestExecution execution = RequestExecution.current();
+            AutoCloseable registration = execution == null ? () -> {} : execution.onCancel(() -> {
+                try { statement.cancel(); } catch (SQLException ignored) { }
+            });
+            try {
+                checkExecution();
+                int timeout = properties.timeoutSeconds();
+                if (execution != null) timeout = (int) Math.min(timeout,
+                        Math.max(1, (execution.remainingMillis() + 999) / 1000));
+                statement.setQueryTimeout(timeout);
+                statement.setMaxRows(properties.maxRows() + 1);
+                checkExecution();
+                try (ResultSet rs = statement.executeQuery()) {
+                    checkExecution();
+                    result = readResult(rs);
+                }
+                checkExecution();
+            } finally {
+                try { registration.close(); } catch (Exception ignored) { }
             }
         } catch (SQLException | RuntimeException e) {
             // 回滚失败作为附加异常保留，避免覆盖最初的错误。
@@ -111,6 +132,7 @@ public class JdbcQueryExecutor implements QueryExecutor {
             throw new QueryExecutionException("QUERY_RESULT_TOO_LARGE", "返回列数超出允许范围。");
         }
         List<String> columns = new ArrayList<>();
+        List<ResultColumn> columnMetadata = new ArrayList<>();
         Set<String> labels = new HashSet<>();
         for (int i = 1; i <= count; i++) {
             String label = metadata.getColumnLabel(i);
@@ -121,18 +143,23 @@ public class JdbcQueryExecutor implements QueryExecutor {
                 throw new QueryExecutionException("QUERY_DUPLICATE_COLUMN", "返回列名重复，请使用不同的 AS 别名。");
             }
             columns.add(label);
+            columnMetadata.add(ResultColumn.from(metadata,i,label));
         }
 
         List<Map<String, Object>> rows = new ArrayList<>();
         boolean truncated = false;
         int characters = 0;
-        while (rs.next()) {
+        while (true) {
+            checkExecution();
+            if (!rs.next()) break;
+            checkExecution();
             if (rows.size() == properties.maxRows()) {
                 truncated = true;
                 break;
             }
             Map<String, Object> row = new LinkedHashMap<>();
             for (int i = 1; i <= count; i++) {
+                checkExecution();
                 Object value = readValue(rs, i);
                 // 包括列名的重复存储；这是返回内容预算，并非精确的内存或 JSON 字节数。
                 characters += columns.get(i - 1).length()
@@ -145,7 +172,7 @@ public class JdbcQueryExecutor implements QueryExecutor {
             // unmodifiableMap 允许 SQL NULL；Map.copyOf 不允许 null。
             rows.add(Collections.unmodifiableMap(row));
         }
-        return new QueryResult(List.copyOf(columns), List.copyOf(rows), truncated);
+        return new QueryResult(List.copyOf(columns), List.copyOf(rows), truncated,List.copyOf(columnMetadata));
     }
 
     private Object readValue(ResultSet rs, int index) throws SQLException {
@@ -153,12 +180,23 @@ public class JdbcQueryExecutor implements QueryExecutor {
         if (value == null || value instanceof Boolean) {
             return value;
         }
+        if (value instanceof java.math.BigDecimal decimal) {
+            // Bound before toPlainString: a huge exponent must not allocate an unbounded string.
+            if ((long)decimal.precision()+Math.abs((long)decimal.scale())+3>MAX_CELL_SIZE)
+                throw new QueryExecutionException("QUERY_RESULT_TOO_LARGE","单个数值结果过大。");
+            return boundedText(decimal.toPlainString());
+        }
+        if (value instanceof java.math.BigInteger integer) return boundedText(integer.toString());
+        if (value instanceof Long number && (number>9_007_199_254_740_991L || number< -9_007_199_254_740_991L))
+            return number.toString();
         if (value instanceof Number number) {
             if ((number instanceof Double d && !Double.isFinite(d))
                     || (number instanceof Float f && !Float.isFinite(f))) {
                 throw new QueryExecutionException("QUERY_UNSUPPORTED_VALUE", "结果包含无法表示为 JSON 的数值。");
             }
-            return number;
+            if (number instanceof Byte || number instanceof Short || number instanceof Integer || number instanceof Long
+                    || number instanceof Float || number instanceof Double) return number;
+            throw new QueryExecutionException("QUERY_UNSUPPORTED_VALUE","当前不支持此数值结果类型。");
         }
         if (value instanceof byte[] bytes) {
             if (bytes.length > MAX_CELL_SIZE) {
@@ -169,8 +207,8 @@ public class JdbcQueryExecutor implements QueryExecutor {
         if (value instanceof String text) {
             return boundedText(text);
         }
+        if (value instanceof java.sql.Timestamp timestamp) return boundedText(timestamp.toLocalDateTime().toString());
         if (value instanceof java.sql.Date || value instanceof java.sql.Time
-                || value instanceof java.sql.Timestamp
                 || value instanceof java.time.temporal.TemporalAccessor) {
             return boundedText(value.toString());
         }
@@ -183,5 +221,10 @@ public class JdbcQueryExecutor implements QueryExecutor {
             throw new QueryExecutionException("QUERY_RESULT_TOO_LARGE", "单个文本结果过大。");
         }
         return text;
+    }
+
+    private void checkExecution() {
+        RequestExecution execution = RequestExecution.current();
+        if (execution != null) execution.check();
     }
 }

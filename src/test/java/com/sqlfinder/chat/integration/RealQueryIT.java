@@ -26,10 +26,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/**
- * 真实问数验收：显式启用后连接本机 MySQL、调用模型并对照 HTTP 查询结果。
- * 不属于默认单元测试；仅在授权真实请求后运行 -Dtest=RealQueryIT -Dsqlfinder.live-query=true。
- */
+/** 真实问数验收 */
 @EnabledIfSystemProperty(named = "sqlfinder.live-query", matches = "true")
 @ActiveProfiles("local")
 @Import(SecurityTestAccounts.class)

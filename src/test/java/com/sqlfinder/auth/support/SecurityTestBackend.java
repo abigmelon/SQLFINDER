@@ -13,13 +13,13 @@ import org.springframework.context.annotation.Bean;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/** 认证测试的业务替身：记录调用身份，绝不连接模型或数据库。 */
+/** 认证业务替身 */
 @TestConfiguration(proxyBeanMethods = false)
 public class SecurityTestBackend {
     public static class RecordingOrchestrator extends QuestionOrchestrator {
         public final AtomicInteger calls = new AtomicInteger();
         public volatile String username;
-        public RecordingOrchestrator() { super(null, null, null, null, null, null, null); }
+        public RecordingOrchestrator() { super(null, null, null, null, null, null, null, null, null); }
         @Override
         public AnswerResponse ask(String userId, QuestionRequest request) {
             calls.incrementAndGet();

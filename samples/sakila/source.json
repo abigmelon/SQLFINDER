@@ -1,0 +1,31 @@
+{
+  "catalog": "sqlfinder_sakila",
+  "upstream": "https://github.com/jOOQ/sakila/tree/main/mysql-sakila-db",
+  "schema_git_blob": "0fdc36afb7ae123493f57a665a22c4e39fd7f41e",
+  "data_git_blob": "de8604b284fd686eea2cbc859059cebc254b2bb8",
+  "expected_rows": {
+    "actor": 200,
+    "address": 603,
+    "category": 16,
+    "city": 600,
+    "country": 109,
+    "customer": 599,
+    "film": 1000,
+    "film_actor": 5462,
+    "film_category": 1000,
+    "film_text": 1000,
+    "inventory": 4581,
+    "language": 6,
+    "payment": 16049,
+    "rental": 16044,
+    "staff": 2,
+    "store": 2
+  },
+  "changes": [
+    "独立库名",
+    "移除删库和清空数据语句",
+    "utf8mb4",
+    "中文字段注释",
+    "保留原始外键和触发器"
+  ]
+}

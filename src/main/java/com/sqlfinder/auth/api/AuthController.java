@@ -8,9 +8,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
 
-/**
- * 登录辅助接口
- */
+/** 登录辅助接口 */
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {

@@ -33,13 +33,24 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
-/** 主程序启动验收：生产扫描、账号和问数主链路；仅模型、元数据和执行器为替身。 */
+/** 应用登录流程测试 */
 @ActiveProfiles({"test", "local-metadata"})
 @Import(SecurityTestAccounts.class)
+@org.springframework.test.context.ContextConfiguration(initializers = AuthenticatedApplicationTest.IsolatedDatabaseSettings.class)
 @SpringBootTest(classes = SqlFinderApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {"spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration",
-                "sqlfinder.query.enabled=false", "spring.main.banner-mode=off", "logging.level.root=WARN"})
+                "sqlfinder.history.path=./target/test-history/authenticated", "sqlfinder.query.enabled=false",
+                "spring.main.banner-mode=off", "logging.level.root=WARN"})
 class AuthenticatedApplicationTest {
+    // 模拟商铺结构的测试不受本机网页保存的 Sakila 连接影响。
+    public static class IsolatedDatabaseSettings implements org.springframework.context.ApplicationContextInitializer<org.springframework.context.ConfigurableApplicationContext> {
+        @Override public void initialize(org.springframework.context.ConfigurableApplicationContext app) {
+            app.getEnvironment().getPropertySources().addFirst(new org.springframework.core.env.MapPropertySource(
+                    "authenticated-test-metadata", java.util.Map.of("sqlfinder.metadata.catalog", "mybatis",
+                    "sqlfinder.metadata.allowed-tables", List.of("tb_shop", "tb_shop_type"),
+                    "sqlfinder.metadata.allowed-tables[0]", "tb_shop", "sqlfinder.metadata.allowed-tables[1]", "tb_shop_type")));
+        }
+    }
     @LocalServerPort int port;
     @Autowired ObjectMapper mapper;
     @Autowired ApplicationContext context;
@@ -133,5 +144,68 @@ class AuthenticatedApplicationTest {
         assertEquals("COUNT", answer.path("validation").path("functions").get(0).asText());
         verify(model, times(1)).generateSql(any());
         verifyNoInteractions(executor);
+    }
+
+    @Test void historyIsOwnerScopedAndNoStoreOverRealHttp() throws Exception {
+        when(model.generateSql(any())).thenReturn("{\"success\":true,\"sql\":\"SELECT COUNT(*) FROM tb_shop\",\"message\":null}");
+        var owner = login(port, mapper);
+        var created = mapper.readTree(question(owner, "").body());
+        String id = created.path("conversationId").asText();
+        var history = owner.send(HttpRequest.newBuilder(uri(port, "/api/chat/conversations/" + id)).GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, history.statusCode());
+        assertEquals("no-store", history.headers().firstValue("Cache-Control").orElseThrow());
+        assertEquals(created.path("turnId").asText(), mapper.readTree(history.body()).path("turns").get(0).path("id").asText());
+        var other = login(port, mapper, SECOND_USERNAME, SECOND_PASSWORD);
+        assertEquals(404, other.send(HttpRequest.newBuilder(uri(port, "/api/chat/conversations/" + id)).GET().build(),
+                HttpResponse.BodyHandlers.ofString()).statusCode());
+        assertEquals(401, java.net.http.HttpClient.newHttpClient().send(HttpRequest.newBuilder(
+                uri(port, "/api/chat/conversations")).GET().build(), HttpResponse.BodyHandlers.ofString()).statusCode());
+        assertEquals(400, owner.send(HttpRequest.newBuilder(uri(port, "/api/chat/conversations?offset=-1")).GET().build(),
+                HttpResponse.BodyHandlers.ofString()).statusCode());
+        verify(model, times(1)).generateSql(any());
+        verifyNoInteractions(executor);
+    }
+
+    @Test void historyReturnsSavedResultsOnlyToTheirOwnerWithoutReplayingQueries() throws Exception {
+        var store = context.getBean(com.sqlfinder.chat.application.ConversationStore.class);
+        var fingerprint = context.getBean(com.sqlfinder.chat.application.SchemaFingerprint.class);
+        var userMetadata = context.getBean(com.sqlfinder.datasource.application.UserMetadataService.class);
+        String scope = fingerprint.of(userMetadata.getAuthorizedSchemas(USERNAME));
+        var response = new com.sqlfinder.chat.api.AnswerResponse("QUERY_SUCCEEDED", "历史付款金额",
+                "SELECT SUM(amount) AS total FROM tb_shop", List.of("total"),
+                List.of(java.util.Map.of("total", "67416.51")), "查询成功。");
+        var saved = store.append(store.resolve(USERNAME, new com.sqlfinder.chat.api.QuestionRequest("历史付款金额", null), scope), response);
+        var owner = login(port, mapper);
+        var history = owner.send(HttpRequest.newBuilder(uri(port, "/api/chat/conversations/" + saved.conversationId())).GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, history.statusCode());
+        var turn = mapper.readTree(history.body()).path("turns").get(0);
+        assertTrue(turn.path("resultSaved").asBoolean());
+        assertEquals("67416.51", turn.path("answer").path("rows").get(0).path("total").asText());
+        assertEquals("no-store", history.headers().firstValue("Cache-Control").orElseThrow());
+        var other = login(port, mapper, SECOND_USERNAME, SECOND_PASSWORD);
+        var denied = other.send(HttpRequest.newBuilder(uri(port, "/api/chat/conversations/" + saved.conversationId())).GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertEquals(404, denied.statusCode());
+        assertFalse(denied.body().contains("67416.51"));
+        verifyNoInteractions(model, executor);
+    }
+
+    @Test void changedAuthorizationHidesHistoricalSqlAndQuestions() throws Exception {
+        when(model.generateSql(any())).thenReturn("{\"success\":true,\"sql\":\"SELECT COUNT(*) FROM tb_shop\",\"message\":null}");
+        var owner = login(port, mapper);
+        String id = mapper.readTree(question(owner, "").body()).path("conversationId").asText();
+        when(metadata.getAuthorizedSchemas()).thenReturn(List.of(new TableSchema("mybatis", "tb_shop_type", "分类", List.of())));
+        var detail = owner.send(HttpRequest.newBuilder(uri(port, "/api/chat/conversations/" + id)).GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertEquals(409, detail.statusCode());
+        assertFalse(detail.body().contains("SELECT"));
+        var list = owner.send(HttpRequest.newBuilder(uri(port, "/api/chat/conversations")).GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertFalse(list.body().contains(id));
+        var noGrants = login(port, mapper, NO_GRANTS_USERNAME, PASSWORD);
+        assertEquals(403, noGrants.send(HttpRequest.newBuilder(uri(port, "/api/chat/conversations")).GET().build(),
+                HttpResponse.BodyHandlers.ofString()).statusCode());
     }
 }
